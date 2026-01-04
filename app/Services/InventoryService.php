@@ -79,7 +79,7 @@ class InventoryService
                 $product = $item->product;
                 $currentStock = StockMovement::getCurrentStock($item->product_id);
 
-                // Create correction movement
+                // Create correction movement for purchase reversal
                 StockMovement::create([
                     'product_id' => $item->product_id,
                     'user_id' => auth()->id(),
@@ -94,7 +94,7 @@ class InventoryService
                     'notes' => "Reversed purchase from {$purchase->supplier_name}",
                 ]);
 
-                // Update product stock
+                // Update product stock after reversal
                 $newStock = max(0, $product->stock - $item->quantity);
                 $product->stock = $newStock;
                 $product->save();
@@ -206,17 +206,16 @@ class InventoryService
                     'notes' => "Sale invoice: {$transaction->invoice}",
                 ]);
 
-                // Update product stock
-                $newStock = max(0, $product->stock - $detail->quantity);
-                $product->stock = $newStock;
-                $product->save();
+            // Update product stock
+            $newStock = max(0, $product->stock - $detail->quantity);
+            $product->stock = $newStock;
+            $product->save();
 
-                // Update inventory
-                $inventory = Inventory::where('product_id', $detail->product_id)->first();
-                if ($inventory) {
-                    $inventory->quantity = $newStock;
-                    $inventory->save();
-                }
+            // Update inventory
+            $inventory = Inventory::where('product_id', $detail->product_id)->first();
+            if ($inventory) {
+                $inventory->quantity = $newStock;
+                $inventory->save();
             }
         });
     }
@@ -252,15 +251,14 @@ class InventoryService
                     'notes' => "Return for invoice: {$transaction->invoice}",
                 ]);
 
-                // Update product stock
-                $product->increment('stock', $detail->quantity);
+            // Update product stock
+            $product->increment('stock', $detail->quantity);
 
-                // Update inventory
-                $inventory = Inventory::where('product_id', $detail->product_id)->first();
-                if ($inventory) {
-                    $inventory->quantity = $currentStock + $detail->quantity;
-                    $inventory->save();
-                }
+            // Update inventory
+            $inventory = Inventory::where('product_id', $detail->product_id)->first();
+            if ($inventory) {
+                $inventory->quantity = $currentStock + $detail->quantity;
+                $inventory->save();
             }
         });
     }
