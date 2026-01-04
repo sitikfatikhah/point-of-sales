@@ -292,14 +292,14 @@ class InventoryService
             $newStock = $isIncoming ? $currentStock + abs($quantity) : max(0, $currentStock - abs($quantity));
 
             // Create inventory adjustment record (for journal)
+            // Note: quantity_before and quantity_after are NOT stored in inventory_adjustments table
+            // They are only stored in stock_movements table
             $adjustment = InventoryAdjustment::create([
                 'journal_number' => $journalNumber,
                 'product_id' => $product->id,
                 'user_id' => $userId ?? auth()->id(),
                 'type' => $type,
                 'quantity_change' => $quantityChange,
-                'quantity_before' => $currentStock,
-                'quantity_after' => $newStock,
                 'reason' => $reason,
                 'notes' => $notes,
             ]);

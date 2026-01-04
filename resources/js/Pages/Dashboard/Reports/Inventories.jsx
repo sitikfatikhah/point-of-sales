@@ -124,9 +124,11 @@ export default function Inventories({ products, summary, filters, categories, re
     };
 
     const getAdjustmentTypeBadge = (type) => {
-        const inTypes = ['in', 'purchase', 'return'];
+        const inTypes = ['in', 'purchase', 'return', 'adjustment_in'];
         const isIncoming = inTypes.includes(type);
         const typeLabels = {
+            adjustment_in: 'Masuk',
+            adjustment_out: 'Keluar',
             in: 'Masuk',
             out: 'Keluar',
             purchase: 'Pembelian',

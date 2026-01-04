@@ -31,7 +31,8 @@ class InventoryAdjustmentController extends Controller
     public function index(Request $request)
     {
         // Query hanya untuk adjustment dengan nomor jurnal
-        $query = InventoryAdjustment::with(['product', 'user'])
+        // Include stockMovement untuk mendapatkan quantity_before dan quantity_after
+        $query = InventoryAdjustment::with(['product', 'user', 'stockMovement'])
             ->withJournal() // Hanya yang punya journal number
             ->orderBy('created_at', 'desc');
 
@@ -177,7 +178,7 @@ class InventoryAdjustmentController extends Controller
         $relatedAdjustments = InventoryAdjustment::forProduct($inventoryAdjustment->product_id)
             ->withJournal()
             ->where('id', '!=', $inventoryAdjustment->id)
-            ->with('user')
+            ->with(['user', 'stockMovement'])
             ->orderBy('created_at', 'desc')
             ->limit(10)
             ->get();

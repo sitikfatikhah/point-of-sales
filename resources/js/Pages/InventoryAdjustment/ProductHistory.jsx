@@ -71,7 +71,7 @@ export default function ProductHistory({ product, adjustments, summary, types, f
 
     // Get type badge
     const getTypeBadge = (type) => {
-        const inTypes = ["in", "purchase", "return"];
+        const inTypes = ["in", "purchase", "return", "adjustment_in"];
         const isIncoming = inTypes.includes(type);
 
         return (
@@ -79,6 +79,8 @@ export default function ProductHistory({ product, adjustments, summary, types, f
                 className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium ${
                     isIncoming
                         ? "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400"
+                        : type === "correction"
+                        ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
                         : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
                 }`}
             >
@@ -313,44 +315,37 @@ export default function ProductHistory({ product, adjustments, summary, types, f
                                                 {adjustments.from + index}
                                             </Table.Td>
                                             <Table.Td>
-                                                <Link
-                                                    href={route(
-                                                        "inventory-adjustments.show",
-                                                        adjustment.id
-                                                    )}
-                                                >
-                                                    {getTypeBadge(adjustment.type)}
-                                                </Link>
+                                                {getTypeBadge(adjustment.movement_type)}
                                             </Table.Td>
                                             <Table.Td className="text-right">
                                                 {Number(
-                                                    adjustment.quantity_before
+                                                    adjustment.quantity_before ?? 0
                                                 ).toLocaleString("id-ID")}
                                             </Table.Td>
                                             <Table.Td className="text-right">
                                                 <span
                                                     className={
-                                                        adjustment.quantity_change > 0
+                                                        Number(adjustment.quantity) > 0
                                                             ? "text-green-600 dark:text-green-400"
                                                             : "text-red-600 dark:text-red-400"
                                                     }
                                                 >
-                                                    {adjustment.quantity_change > 0
+                                                    {Number(adjustment.quantity) > 0
                                                         ? "+"
                                                         : ""}
                                                     {Number(
-                                                        adjustment.quantity_change
+                                                        adjustment.quantity ?? 0
                                                     ).toLocaleString("id-ID")}
                                                 </span>
                                             </Table.Td>
                                             <Table.Td className="text-right font-medium">
                                                 {Number(
-                                                    adjustment.quantity_after
+                                                    adjustment.quantity_after ?? 0
                                                 ).toLocaleString("id-ID")}
                                             </Table.Td>
                                             <Table.Td>
                                                 <p className="text-sm text-slate-600 dark:text-slate-300 truncate max-w-[200px]">
-                                                    {adjustment.reason || "-"}
+                                                    {adjustment.notes || "-"}
                                                 </p>
                                             </Table.Td>
                                             <Table.Td className="text-sm">
