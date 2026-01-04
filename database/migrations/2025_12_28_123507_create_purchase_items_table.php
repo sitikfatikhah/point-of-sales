@@ -32,7 +32,7 @@ return new class extends Migration
 
             $table->string('warehouse')->nullable();
             $table->string('batch')->nullable();
-            $table->date('expired')->nullable();
+            $table->string('expired')->nullable();
             $table->string('currency', 10)->default('IDR');
 
             $table->timestamps();

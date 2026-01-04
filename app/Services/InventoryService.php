@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\Inventory;
-use App\Models\InventoryAdjustment;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\PurchaseItem;
@@ -29,11 +28,25 @@ class InventoryService
      * Process inventory for a purchase (increase stock)
      * Mencatat ke StockMovement ledger
      */
-    public function processPurchase(Purchase $purchase): void
-    {
-        DB::transaction(function () use ($purchase) {
-            foreach ($purchase->items as $item) {
-                if (!$item->product_id) continue;
+    public static function record(
+        int $productId,
+        string $type,
+        float $qty,
+        ?string $note = null,
+        ?string $referenceType = null,
+        ?int $referenceId = null,
+        ?int $userId = null
+    ): void {
+        DB::transaction(function () use (
+            $productId,
+            $type,
+            $qty,
+            $note,
+            $referenceType,
+            $referenceId,
+            $userId
+        ) {
+            $product = Product::lockForUpdate()->findOrFail($productId);
 
                 $product = $item->product;
                 $currentStock = StockMovement::getCurrentStock($item->product_id);
@@ -61,17 +74,60 @@ class InventoryService
                 $inventory->quantity = $currentStock + $item->quantity;
                 $inventory->save();
             }
+
+            InventoryAdjustment::create([
+                'product_id'    => $productId,
+                'type'          => $type,
+                'qty_in'        => $qtyIn,
+                'qty_out'       => $qtyOut,
+                'stock_before'  => $product->stock,
+                'stock_after'   => ($product->stock + $qtyIn) - $qtyOut,
+                'note'          => $note,
+                'reference_type' => $referenceType,
+                'reference_id'  => $referenceId,
+                'user_id'       => $userId,
+            ]);
+
+            $product->update([
+                'stock' => ($product->stock + $qtyIn) - $qtyOut
+            ]);
         });
     }
 
     /**
-     * Reverse inventory for a purchase (when deleted/cancelled)
+     * JURNAL PEMBELIAN (HIGH LEVEL)
      */
+    public function processPurchase(Purchase $purchase): void
+    {
+        foreach ($purchase->items as $item) {
+            if (!$item->product_id) {
+                continue;
+            }
+
+            self::record(
+                productId: $item->product_id,
+                type: 'purchase',
+                qty: $item->quantity,
+                note: "Purchase from {$purchase->supplier_name}",
+                referenceType: 'purchase',
+                referenceId: $purchase->id,
+                userId: auth()->id()
+            );
+        }
+    }
+
+    /**
+     * REVERSE JURNAL PEMBELIAN (UNTUK UPDATE / DELETE)
+     */
+    // app/Services/InventoryService.php
+
     public function reversePurchase(Purchase $purchase): void
     {
         DB::transaction(function () use ($purchase) {
             foreach ($purchase->items as $item) {
-                if (!$item->product_id) continue;
+                if (!$item->product_id) {
+                    continue;
+                }
 
                 $product = $item->product;
                 $currentStock = StockMovement::getCurrentStock($item->product_id);
@@ -173,13 +229,11 @@ class InventoryService
     }
 
     /**
-     * Process inventory for a transaction/sale (decrease stock)
+     * Proses transaksi penjualan (OUT stok)
      */
-    public function processTransaction(Transaction $transaction): void
+    public function processTransaction($transaction): void
     {
-        DB::transaction(function () use ($transaction) {
-            foreach ($transaction->details as $detail) {
-                if (!$detail->product_id) continue;
+        $transaction->load('details.product');
 
                 $product = $detail->product;
                 $currentStock = StockMovement::getCurrentStock($detail->product_id);
@@ -211,17 +265,22 @@ class InventoryService
                     $inventory->save();
                 }
             }
-        });
+
+            self::record(
+                productId: $detail->product_id,
+                type: 'sale',
+                qty: $detail->quantity,
+                note: 'Penjualan #' . $transaction->invoice,
+                referenceType: 'transaction',
+                referenceId: $transaction->id,
+                userId: auth()->id()
+            );
+        } 
     }
 
-    /**
-     * Reverse inventory for a transaction (when refunded/cancelled)
-     */
-    public function reverseTransaction(Transaction $transaction): void
+    public function reverseTransaction($transaction): void
     {
-        DB::transaction(function () use ($transaction) {
-            foreach ($transaction->details as $detail) {
-                if (!$detail->product_id) continue;
+        $transaction->load('details.product');
 
                 $product = $detail->product;
                 $currentStock = StockMovement::getCurrentStock($detail->product_id);
@@ -251,8 +310,6 @@ class InventoryService
                     $inventory->save();
                 }
             }
-        });
-    }
 
     // ==========================================
     // MANUAL ADJUSTMENT PROCESSING
@@ -355,7 +412,8 @@ class InventoryService
     // ==========================================
 
     /**
-     * Get stock movement history for a product
+     * Ringkasan inventory (DASHBOARD)
+     * ⚠️ Menggunakan saldo akhir produk, BUKAN jurnal
      */
     public function getStockHistory(Product $product, ?string $from = null, ?string $to = null)
     {

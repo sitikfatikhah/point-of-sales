@@ -50,6 +50,18 @@ export default function Index({
     const inputRef = useRef(null);
     const debounceTimerRef = useRef(null);
 
+    const [showProductModal, setShowProductModal] = useState(false);
+
+    const handleOpenProductModal = () => {
+    if (isFetchingSuggestions) return; // lock saat loading
+        setShowProductModal(true);
+    };
+
+    const handleCloseProductModal = () => {
+        setShowProductModal(false);
+    };
+
+
     useEffect(() => {
         setPaymentMethod(defaultPaymentGateway ?? "cash");
     }, [defaultPaymentGateway]);
@@ -446,12 +458,12 @@ export default function Index({
                                                     </svg>
                                                 ) : barcode ? (
                                                     <button
-                                                        type="button"
-                                                        onClick={resetProductForm}
-                                                        className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-                                                    >
-                                                        <IconX size={16} />
-                                                    </button>
+                                                    type="button"
+                                                    onClick={handleOpenProductModal}
+                                                    className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+                                                >
+                                                    <IconSearch size={16} />
+                                                </button>
                                                 ) : (
                                                     <IconSearch size={16} className="text-gray-400 dark:text-gray-500" />
                                                 )}
@@ -907,6 +919,7 @@ export default function Index({
             </div>
         </>
     );
+    
 }
 
 Index.layout = (page) => <DashboardLayout children={page} />;

@@ -189,15 +189,17 @@ export default function Print({ transaction }) {
                                     </thead>
                                     <tbody className="divide-y divide-gray-50 text-gray-700">
                                         {items.map((item, index) => {
-                                            const quantity = Number(item.quantity) || 1;
-                                            const subtotal = Number(item.price) || 0;
-                                            const unitPrice = subtotal / quantity;
+                                            const quantity = Number(item.quantity) || 0;
+                                            const unitPrice = Number(item.price) || 0;
+                                            const discount = Number(item.discount) || 0;
+
+                                            const grossSubtotal = unitPrice * quantity;
+                                            const netSubtotal = grossSubtotal - discount;
 
                                             return (
                                                 <tr key={item.id ?? index}>
-                                                    <td className="px-4 py-3">
-                                                        {index + 1}
-                                                    </td>
+                                                    <td className="px-4 py-3">{index + 1}</td>
+
                                                     <td className="px-4 py-3">
                                                         <p className="font-semibold text-gray-900">
                                                             {item.product?.title}
@@ -208,19 +210,27 @@ export default function Print({ transaction }) {
                                                             </p>
                                                         )}
                                                     </td>
+
                                                     <td className="px-4 py-3 text-right">
                                                         {formatPrice(unitPrice)}
                                                     </td>
+
                                                     <td className="px-4 py-3 text-center">
                                                         {quantity}
                                                     </td>
+
+                                                    <td className="px-4 py-3 text-right text-rose-600">
+                                                        {discount > 0 ? `- ${formatPrice(discount)}` : "—"}
+                                                    </td>
+
                                                     <td className="px-4 py-3 text-right font-semibold text-gray-900">
-                                                        {formatPrice(subtotal)}
+                                                        {formatPrice(netSubtotal)}
                                                     </td>
                                                 </tr>
                                             );
                                         })}
                                     </tbody>
+
                                 </table>
                             </div>
 

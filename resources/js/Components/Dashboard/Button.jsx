@@ -5,38 +5,49 @@ import Swal from 'sweetalert2'
 
 export default function Button({ className, icon, label, type, href, added, url, id, variant = 'primary', size = 'md', ...props }) {
 
-    const { delete: destroy } = useForm();
+    const { delete: destroy } = useForm()
 
-    const deleteData = async (url) => {
+    const deleteData = (url) => {
         Swal.fire({
             title: 'Apakah kamu yakin?',
-            text: "Data yang dihapus tidak dapat dikembalikan!",
+            text: 'Data yang dihapus tidak dapat dikembalikan!',
             icon: 'warning',
             showCancelButton: true,
             confirmButtonColor: '#3b82f6',
             cancelButtonColor: '#ef4444',
             confirmButtonText: 'Ya, hapus!',
             cancelButtonText: 'Batal',
-            customClass: {
-                popup: 'dark:bg-slate-900 dark:text-slate-100',
-                title: 'dark:text-slate-100',
-                htmlContainer: 'dark:text-slate-400',
-            }
-        }).then((result) => {
-            if (result.isConfirmed) {
-                destroy(url)
+        }).then(({ isConfirmed }) => {
+            if (!isConfirmed) return
 
-                Swal.fire({
-                    title: 'Berhasil!',
-                    text: 'Data berhasil dihapus!',
-                    icon: 'success',
-                    showConfirmButton: false,
-                    timer: 1500,
-                    customClass: {
-                        popup: 'dark:bg-slate-900 dark:text-slate-100',
-                    }
-                })
-            }
+            destroy(url, {
+                preserveScroll: true,
+
+                onSuccess: () => {
+                    Swal.fire({
+                        title: 'Berhasil!',
+                        text: 'Data berhasil dihapus!',
+                        icon: 'success',
+                        showConfirmButton: false,
+                        timer: 1500,
+                        customClass: {
+                            popup: 'dark:bg-slate-900 dark:text-slate-100',
+                        },
+                    })
+                },
+
+                onError: (errors) => {
+                    Swal.fire({
+                        title: 'Gagal!',
+                        text: errors?.error ?? 'Data tidak bisa dihapus.',
+                        icon: 'error',
+                        // confirmButtonText: 'OK',
+                        customClass: {
+                            popup: 'dark:bg-slate-900 dark:text-slate-100',
+                        },
+                    })
+                },
+            })
         })
     }
 

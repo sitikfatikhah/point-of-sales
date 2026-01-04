@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import DashboardLayout from '@/Layouts/DashboardLayout';
 import { Head, router, usePage } from '@inertiajs/react';
 import Card from '@/Components/Dashboard/Card';
@@ -165,6 +165,25 @@ export default function Edit({ purchase, products }) {
             minimumFractionDigits: 0,
         }).format(isNaN(num) ? 0 : num);
     };
+
+    const calculateTotalPPN = () => {
+        return cartItems.reduce((sum, item) => {
+            const qty = Number(item.quantity) || 0;
+            const price = Number(item.purchase_price) || 0;
+            const discount = Number(item.discount_percent) || 0;
+            const tax = Number(item.tax_percent) || 0;
+
+            let subtotal = qty * price;
+            subtotal -= subtotal * (discount / 100);
+
+            return sum + (subtotal * (tax / 100));
+        }, 0);
+    };
+    useEffect(() => {
+        if (calculateTotalPPN() > 0 && !data.tax_included) {
+            setData(prev => ({ ...prev, tax_included: true }));
+        }
+    }, [cartItems]);
 
     const handleSubmit = (e) => {
         e.preventDefault();

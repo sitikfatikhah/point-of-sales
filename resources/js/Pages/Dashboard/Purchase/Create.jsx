@@ -217,6 +217,14 @@ export default function Create({ products }) {
             return sum + (subtotal * (tax / 100));
         }, 0);
     };
+    
+    const totalPPN = Math.round(calculateTotalPPN());
+
+        if (totalPPN > 0 && !data.tax_included) {
+            toast.error('Centang "Termasuk PPN" karena ada nilai PPN');
+            return;
+        }
+
 
     const statusOptions = [
         { value: 'pending', label: 'Pending' },
@@ -307,8 +315,14 @@ export default function Create({ products }) {
                             <Checkbox
                                 label="Termasuk PPN"
                                 checked={data.tax_included}
+                                disabled={Math.round(calculateTotalPPN()) > 0}
                                 onChange={e => setData('tax_included', e.target.checked)}
                             />
+                            {Math.round(calculateTotalPPN()) > 0 && (
+                                <span className="text-xs text-red-500">
+                                    * wajib
+                                </span>
+                            )}
                         </div>
                     </div>
                 </Card>
@@ -352,6 +366,9 @@ export default function Create({ products }) {
                                     <Table.Th className="w-[180px]">Barcode</Table.Th>
                                     <Table.Th className="min-w-[200px]">Produk</Table.Th>
                                     <Table.Th className="w-[100px] text-center">Qty</Table.Th>
+                                    <Table.Th className="w-[100px] text-center">warehouse</Table.Th>
+                                    <Table.Th className="w-[100px] text-center">Batch</Table.Th>
+                                    <Table.Th className="w-[100px] text-center">Expired</Table.Th>
                                     <Table.Th className="w-[140px] text-center">Harga</Table.Th>
                                     <Table.Th className="w-[100px] text-center">Diskon %</Table.Th>
                                     <Table.Th className="w-[90px] text-center">PPN %</Table.Th>
@@ -404,6 +421,32 @@ export default function Create({ products }) {
                                                 className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded-md bg-white dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-center"
                                             />
                                         </Table.Td>
+                                        <Table.Td>
+                                            <input
+                                                type="text"
+                                                value={item.warehouse ?? ''}
+                                                onChange={(e) => updateRow(index, 'warehouse', e.target.value)}
+                                                className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded-md bg-white dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-center"
+                                            />
+                                            
+                                        </Table.Td>
+                                        <Table.Td>
+                                            <input
+                                                type="text"
+                                                value={item.batch ?? ''}
+                                                onChange={(e) => updateRow(index, 'batch', e.target.value)}
+                                                className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded-md bg-white dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-center"
+                                            />
+                                            
+                                        </Table.Td>
+                                        <Table.Td>
+                                            <input
+                                                type="text"
+                                                value={item.expired ?? ''}
+                                                onChange={(e) => updateRow(index, 'expired', e.target.value)}
+                                                className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded-md bg-white dark:bg-slate-800 dark:border-slate-700 dark:text-slate-100 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-center"
+                                            />
+                                        </Table.Td>    
                                         <Table.Td>
                                             <input
                                                 type="number"

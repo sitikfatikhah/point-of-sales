@@ -6,6 +6,7 @@ use Inertia\Inertia;
 use App\Models\Customer;
 use Illuminate\Http\Request;
 use App\Http\Controllers\Controller;
+use Illuminate\Validation\ValidationException;
 
 class CustomerController extends Controller
 {
@@ -25,8 +26,8 @@ class CustomerController extends Controller
         // Get customers with search filter
         $customers = Customer::when($request->search, function ($query, $search) {
             $query->where('name', 'like', '%' . $search . '%')
-                  ->orWhere('no_telp', 'like', '%' . $search . '%')
-                  ->orWhere('address', 'like', '%' . $search . '%');
+                ->orWhere('no_telp', 'like', '%' . $search . '%')
+                ->orWhere('address', 'like', '%' . $search . '%');
         })->latest()->paginate($perPage)->withQueryString();
 
         // Return inertia with filters
@@ -127,13 +128,16 @@ class CustomerController extends Controller
      */
     public function destroy($id)
     {
-        //find customer by ID
         $customer = Customer::findOrFail($id);
 
-        //delete customer
+        if ($customer->transactions()->exists()) {
+            throw ValidationException::withMessages([
+                'error' => 'Customer tidak bisa dihapus karena memiliki transaksi.'
+            ]);
+        }
+
         $customer->delete();
 
-        //redirect
-        return back();
+        return back()->with('success', 'Customer berhasil dihapus');
     }
 }
