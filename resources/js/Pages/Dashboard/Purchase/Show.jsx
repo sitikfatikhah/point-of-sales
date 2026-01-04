@@ -16,6 +16,7 @@ import {
     IconArrowDown,
 } from "@tabler/icons-react";
 import Table from "@/Components/Dashboard/Table";
+import { formatDateTime, formatDate } from "@/Utils/DateHelper";
 
 export default function Show({ purchase, inventoryAdjustments, totals }) {
     // Format currency
@@ -26,28 +27,6 @@ export default function Show({ purchase, inventoryAdjustments, totals }) {
             currency: "IDR",
             minimumFractionDigits: 0,
         }).format(isNaN(num) ? 0 : num);
-    };
-
-    // Format date
-    const formatDate = (dateString) => {
-        if (!dateString) return "-";
-        return new Date(dateString).toLocaleDateString("id-ID", {
-            day: "numeric",
-            month: "long",
-            year: "numeric",
-        });
-    };
-
-    // Format datetime
-    const formatDateTime = (dateString) => {
-        if (!dateString) return "-";
-        return new Date(dateString).toLocaleString("id-ID", {
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-        });
     };
 
     // Status badge

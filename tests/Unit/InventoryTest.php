@@ -6,10 +6,18 @@ use App\Models\Inventory;
 use App\Models\InventoryAdjustment;
 use App\Models\Product;
 use App\Models\Category;
+use App\Models\StockMovement;
 use App\Models\User;
+use App\Services\InventoryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
+/**
+ * Unit Test untuk Model Inventory
+ *
+ * Test ini memastikan model Inventory bekerja dengan benar
+ * dengan arsitektur baru menggunakan StockMovement
+ */
 class InventoryTest extends TestCase
 {
     use RefreshDatabase;
@@ -18,12 +26,14 @@ class InventoryTest extends TestCase
     protected Category $category;
     protected Product $product;
     protected Inventory $inventory;
+    protected InventoryService $inventoryService;
 
     protected function setUp(): void
     {
         parent::setUp();
 
         $this->user = User::factory()->create();
+        $this->inventoryService = new InventoryService();
         $this->category = Category::create([
             'name' => 'Test Category',
             'description' => 'Test description',
@@ -45,111 +55,21 @@ class InventoryTest extends TestCase
     }
 
     /** @test */
-    public function can_add_stock_and_create_adjustment()
+    public function inventory_memiliki_relasi_ke_produk()
     {
-        $this->actingAs($this->user);
-
-        $adjustment = $this->inventory->addStock(
-            quantity: 50,
-            type: InventoryAdjustment::TYPE_PURCHASE,
-            reason: 'Purchase from supplier'
-        );
-
-        // Verify inventory updated
-        $this->assertEquals(150, $this->inventory->fresh()->quantity);
-
-        // Verify adjustment created
-        $this->assertInstanceOf(InventoryAdjustment::class, $adjustment);
-        $this->assertEquals($this->product->id, $adjustment->product_id);
-        $this->assertEquals(InventoryAdjustment::TYPE_PURCHASE, $adjustment->type);
-        $this->assertEquals(100, $adjustment->quantity_before);
-        $this->assertEquals(50, $adjustment->quantity_change);
-        $this->assertEquals(150, $adjustment->quantity_after);
-        $this->assertEquals('Purchase from supplier', $adjustment->reason);
+        $this->assertInstanceOf(Product::class, $this->inventory->product);
+        $this->assertEquals($this->product->id, $this->inventory->product->id);
     }
 
     /** @test */
-    public function can_reduce_stock_and_create_adjustment()
+    public function produk_memiliki_relasi_ke_inventory()
     {
-        $this->actingAs($this->user);
-
-        $adjustment = $this->inventory->reduceStock(
-            quantity: 30,
-            type: InventoryAdjustment::TYPE_SALE,
-            reason: 'Sale transaction'
-        );
-
-        // Verify inventory updated
-        $this->assertEquals(70, $this->inventory->fresh()->quantity);
-
-        // Verify adjustment created
-        $this->assertInstanceOf(InventoryAdjustment::class, $adjustment);
-        $this->assertEquals(InventoryAdjustment::TYPE_SALE, $adjustment->type);
-        $this->assertEquals(100, $adjustment->quantity_before);
-        $this->assertEquals(-30, $adjustment->quantity_change);
-        $this->assertEquals(70, $adjustment->quantity_after);
+        $this->assertInstanceOf(Inventory::class, $this->product->inventory);
+        $this->assertEquals($this->inventory->id, $this->product->inventory->id);
     }
 
     /** @test */
-    public function can_set_stock_with_correction()
-    {
-        $this->actingAs($this->user);
-
-        $adjustment = $this->inventory->setStock(
-            newQuantity: 75,
-            reason: 'Stock opname correction'
-        );
-
-        // Verify inventory updated
-        $this->assertEquals(75, $this->inventory->fresh()->quantity);
-
-        // Verify adjustment created
-        $this->assertEquals(InventoryAdjustment::TYPE_CORRECTION, $adjustment->type);
-        $this->assertEquals(100, $adjustment->quantity_before);
-        $this->assertEquals(-25, $adjustment->quantity_change);
-        $this->assertEquals(75, $adjustment->quantity_after);
-    }
-
-    /** @test */
-    public function add_stock_increases_quantity()
-    {
-        $this->actingAs($this->user);
-
-        $initialQuantity = $this->inventory->quantity;
-        $addQuantity = 25;
-
-        $this->inventory->addStock($addQuantity, InventoryAdjustment::TYPE_IN, 'Manual add');
-
-        $this->assertEquals($initialQuantity + $addQuantity, $this->inventory->fresh()->quantity);
-    }
-
-    /** @test */
-    public function reduce_stock_decreases_quantity()
-    {
-        $this->actingAs($this->user);
-
-        $initialQuantity = $this->inventory->quantity;
-        $reduceQuantity = 25;
-
-        $this->inventory->reduceStock($reduceQuantity, InventoryAdjustment::TYPE_OUT, 'Manual reduce');
-
-        $this->assertEquals($initialQuantity - $reduceQuantity, $this->inventory->fresh()->quantity);
-    }
-
-    /** @test */
-    public function stock_cannot_go_below_zero()
-    {
-        $this->actingAs($this->user);
-
-        // Try to reduce more than available
-        $this->inventory->reduceStock(150, InventoryAdjustment::TYPE_OUT, 'Over reduce');
-
-        // Stock should be 0, not negative
-        $this->assertEquals(0, $this->inventory->fresh()->quantity);
-    }
-
-    /** @test */
-    public function can_get_or_create_inventory_for_product()
+    public function dapat_mengambil_atau_membuat_inventory_untuk_produk()
     {
         // Create a new product without inventory
         $newProduct = Product::create([
@@ -173,7 +93,7 @@ class InventoryTest extends TestCase
     }
 
     /** @test */
-    public function get_or_create_returns_existing_inventory()
+    public function get_or_create_mengembalikan_inventory_yang_ada()
     {
         // Should return existing inventory, not create new
         $inventory = Inventory::getOrCreateForProduct($this->product);
@@ -182,66 +102,185 @@ class InventoryTest extends TestCase
     }
 
     /** @test */
-    public function adjustment_tracks_reference()
+    public function inventory_memiliki_relasi_ke_stock_movements()
+    {
+        // Create some stock movements
+        StockMovement::create([
+            'product_id' => $this->product->id,
+            'user_id' => $this->user->id,
+            'movement_type' => StockMovement::TYPE_PURCHASE,
+            'quantity' => 50,
+            'quantity_before' => 100,
+            'quantity_after' => 150,
+        ]);
+
+        StockMovement::create([
+            'product_id' => $this->product->id,
+            'user_id' => $this->user->id,
+            'movement_type' => StockMovement::TYPE_SALE,
+            'quantity' => -10,
+            'quantity_before' => 150,
+            'quantity_after' => 140,
+        ]);
+
+        $this->inventory->refresh();
+
+        $this->assertCount(2, $this->inventory->stockMovements);
+    }
+
+    /** @test */
+    public function dapat_menghitung_saldo_stok_dari_movements()
+    {
+        // Create stock movements
+        StockMovement::create([
+            'product_id' => $this->product->id,
+            'movement_type' => StockMovement::TYPE_PURCHASE,
+            'quantity' => 100,
+            'quantity_before' => 0,
+            'quantity_after' => 100,
+        ]);
+
+        StockMovement::create([
+            'product_id' => $this->product->id,
+            'movement_type' => StockMovement::TYPE_SALE,
+            'quantity' => -30,
+            'quantity_before' => 100,
+            'quantity_after' => 70,
+        ]);
+
+        $stockBalance = StockMovement::getCurrentStock($this->product->id);
+
+        $this->assertEquals(70, $stockBalance);
+    }
+
+    /** @test */
+    public function dapat_sinkronisasi_quantity_dari_movements()
+    {
+        // Set initial inventory quantity to different value
+        $this->inventory->quantity = 50;
+        $this->inventory->save();
+
+        // Create stock movements with different total
+        StockMovement::create([
+            'product_id' => $this->product->id,
+            'movement_type' => StockMovement::TYPE_PURCHASE,
+            'quantity' => 100,
+            'quantity_before' => 0,
+            'quantity_after' => 100,
+        ]);
+
+        StockMovement::create([
+            'product_id' => $this->product->id,
+            'movement_type' => StockMovement::TYPE_SALE,
+            'quantity' => -25,
+            'quantity_before' => 100,
+            'quantity_after' => 75,
+        ]);
+
+        // Sync from movements
+        $this->inventory->syncQuantityFromMovements();
+
+        $this->assertEquals(75, $this->inventory->quantity);
+    }
+
+    /** @test */
+    public function inventory_memiliki_relasi_ke_adjustments()
     {
         $this->actingAs($this->user);
 
-        $adjustment = $this->inventory->addStock(
-            quantity: 20,
-            type: InventoryAdjustment::TYPE_PURCHASE,
-            reason: 'Purchase',
-            referenceType: 'purchase',
-            referenceId: 123
+        // Create adjustments using the service
+        $this->inventoryService->createAdjustment(
+            $this->product,
+            10,
+            InventoryAdjustment::TYPE_ADJUSTMENT_IN,
+            'Test add',
+            null,
+            $this->user->id
         );
 
-        $this->assertEquals('purchase', $adjustment->reference_type);
-        $this->assertEquals(123, $adjustment->reference_id);
-    }
-
-    /** @test */
-    public function adjustment_tracks_user()
-    {
-        $this->actingAs($this->user);
-
-        $adjustment = $this->inventory->addStock(
-            quantity: 10,
-            type: InventoryAdjustment::TYPE_IN,
-            reason: 'Test'
+        $this->inventoryService->createAdjustment(
+            $this->product,
+            5,
+            InventoryAdjustment::TYPE_DAMAGE,
+            'Test damage',
+            null,
+            $this->user->id
         );
 
-        $this->assertEquals($this->user->id, $adjustment->user_id);
+        $this->inventory->refresh();
+
+        $this->assertCount(2, $this->inventory->adjustments);
     }
 
     /** @test */
-    public function inventory_has_adjustments_relationship()
+    public function adjustment_tipe_yang_valid()
     {
-        $this->actingAs($this->user);
+        $validTypes = InventoryAdjustment::getTypes();
 
-        $this->inventory->addStock(10, InventoryAdjustment::TYPE_IN, 'Add 1');
-        $this->inventory->addStock(20, InventoryAdjustment::TYPE_PURCHASE, 'Add 2');
-        $this->inventory->reduceStock(5, InventoryAdjustment::TYPE_SALE, 'Reduce 1');
-
-        $this->assertEquals(3, $this->inventory->adjustments()->count());
+        $this->assertContains(InventoryAdjustment::TYPE_ADJUSTMENT_IN, $validTypes);
+        $this->assertContains(InventoryAdjustment::TYPE_ADJUSTMENT_OUT, $validTypes);
+        $this->assertContains(InventoryAdjustment::TYPE_RETURN, $validTypes);
+        $this->assertContains(InventoryAdjustment::TYPE_DAMAGE, $validTypes);
+        $this->assertContains(InventoryAdjustment::TYPE_CORRECTION, $validTypes);
     }
 
     /** @test */
-    public function can_filter_adjustments_by_type()
+    public function adjustment_incoming_types_benar()
     {
-        $this->actingAs($this->user);
+        $incomingTypes = InventoryAdjustment::getIncomingTypes();
 
-        $this->inventory->addStock(10, InventoryAdjustment::TYPE_PURCHASE, 'Purchase 1');
-        $this->inventory->addStock(20, InventoryAdjustment::TYPE_PURCHASE, 'Purchase 2');
-        $this->inventory->reduceStock(5, InventoryAdjustment::TYPE_SALE, 'Sale 1');
-
-        $purchaseAdjustments = InventoryAdjustment::ofType(InventoryAdjustment::TYPE_PURCHASE)->count();
-        $saleAdjustments = InventoryAdjustment::ofType(InventoryAdjustment::TYPE_SALE)->count();
-
-        $this->assertEquals(2, $purchaseAdjustments);
-        $this->assertEquals(1, $saleAdjustments);
+        $this->assertContains(InventoryAdjustment::TYPE_ADJUSTMENT_IN, $incomingTypes);
+        $this->assertContains(InventoryAdjustment::TYPE_RETURN, $incomingTypes);
+        $this->assertNotContains(InventoryAdjustment::TYPE_ADJUSTMENT_OUT, $incomingTypes);
+        $this->assertNotContains(InventoryAdjustment::TYPE_DAMAGE, $incomingTypes);
     }
 
     /** @test */
-    public function can_filter_adjustments_by_product()
+    public function adjustment_outgoing_types_benar()
+    {
+        $outgoingTypes = InventoryAdjustment::getOutgoingTypes();
+
+        $this->assertContains(InventoryAdjustment::TYPE_ADJUSTMENT_OUT, $outgoingTypes);
+        $this->assertContains(InventoryAdjustment::TYPE_DAMAGE, $outgoingTypes);
+        $this->assertNotContains(InventoryAdjustment::TYPE_ADJUSTMENT_IN, $outgoingTypes);
+        $this->assertNotContains(InventoryAdjustment::TYPE_RETURN, $outgoingTypes);
+    }
+
+    /** @test */
+    public function adjustment_type_label_bekerja()
+    {
+        $adjustment = new InventoryAdjustment([
+            'type' => InventoryAdjustment::TYPE_ADJUSTMENT_IN,
+        ]);
+        $this->assertEquals('Adjustment Masuk', $adjustment->type_label);
+
+        $adjustment->type = InventoryAdjustment::TYPE_DAMAGE;
+        $this->assertEquals('Barang Rusak', $adjustment->type_label);
+
+        $adjustment->type = InventoryAdjustment::TYPE_RETURN;
+        $this->assertEquals('Return Barang', $adjustment->type_label);
+    }
+
+    /** @test */
+    public function adjustment_is_incoming_dan_is_outgoing_bekerja()
+    {
+        $incomingAdjustment = new InventoryAdjustment([
+            'type' => InventoryAdjustment::TYPE_ADJUSTMENT_IN,
+        ]);
+
+        $outgoingAdjustment = new InventoryAdjustment([
+            'type' => InventoryAdjustment::TYPE_DAMAGE,
+        ]);
+
+        $this->assertTrue($incomingAdjustment->isIncoming());
+        $this->assertFalse($incomingAdjustment->isOutgoing());
+
+        $this->assertFalse($outgoingAdjustment->isIncoming());
+        $this->assertTrue($outgoingAdjustment->isOutgoing());
+    }
+
+    /** @test */
+    public function dapat_filter_adjustments_by_product()
     {
         $this->actingAs($this->user);
 
@@ -256,14 +295,26 @@ class InventoryTest extends TestCase
             'stock' => 50,
         ]);
 
-        $inventory2 = Inventory::create([
+        Inventory::create([
             'product_id' => $product2->id,
             'barcode' => $product2->barcode,
             'quantity' => 50,
         ]);
 
-        $this->inventory->addStock(10, InventoryAdjustment::TYPE_IN, 'Add to product 1');
-        $inventory2->addStock(20, InventoryAdjustment::TYPE_IN, 'Add to product 2');
+        // Create adjustments for both products
+        $this->inventoryService->createAdjustment(
+            $this->product,
+            10,
+            InventoryAdjustment::TYPE_ADJUSTMENT_IN,
+            'Add to product 1'
+        );
+
+        $this->inventoryService->createAdjustment(
+            $product2,
+            20,
+            InventoryAdjustment::TYPE_ADJUSTMENT_IN,
+            'Add to product 2'
+        );
 
         $product1Adjustments = InventoryAdjustment::forProduct($this->product->id)->count();
         $product2Adjustments = InventoryAdjustment::forProduct($product2->id)->count();
@@ -273,33 +324,50 @@ class InventoryTest extends TestCase
     }
 
     /** @test */
-    public function adjustment_type_label_attribute_works()
+    public function adjustment_memiliki_relasi_ke_user()
     {
-        $adjustment = new InventoryAdjustment([
-            'type' => InventoryAdjustment::TYPE_PURCHASE,
-        ]);
+        $this->actingAs($this->user);
 
-        $this->assertEquals('Pembelian', $adjustment->type_label);
+        $result = $this->inventoryService->createAdjustment(
+            $this->product,
+            15,
+            InventoryAdjustment::TYPE_ADJUSTMENT_IN,
+            'Test user tracking',
+            null,
+            $this->user->id
+        );
 
-        $adjustment->type = InventoryAdjustment::TYPE_SALE;
-        $this->assertEquals('Penjualan', $adjustment->type_label);
+        $this->assertEquals($this->user->id, $result['adjustment']->user_id);
+        $this->assertInstanceOf(User::class, $result['adjustment']->user);
     }
 
     /** @test */
-    public function adjustment_incoming_outgoing_helpers_work()
+    public function adjustment_dengan_journal_hanya_menampilkan_yang_punya_jurnal()
     {
-        $incomingAdjustment = new InventoryAdjustment([
-            'type' => InventoryAdjustment::TYPE_PURCHASE,
+        $this->actingAs($this->user);
+
+        // Create adjustment with journal number
+        $this->inventoryService->createAdjustment(
+            $this->product,
+            10,
+            InventoryAdjustment::TYPE_ADJUSTMENT_IN,
+            'With journal'
+        );
+
+        // Create adjustment without journal (manually)
+        InventoryAdjustment::create([
+            'product_id' => $this->product->id,
+            'user_id' => $this->user->id,
+            'type' => InventoryAdjustment::TYPE_ADJUSTMENT_IN,
+            'quantity_change' => 5,
+            'reason' => 'Without journal',
+            'journal_number' => null,
         ]);
 
-        $outgoingAdjustment = new InventoryAdjustment([
-            'type' => InventoryAdjustment::TYPE_SALE,
-        ]);
+        $withJournal = InventoryAdjustment::withJournal()->count();
+        $total = InventoryAdjustment::count();
 
-        $this->assertTrue($incomingAdjustment->isIncoming());
-        $this->assertFalse($incomingAdjustment->isOutgoing());
-
-        $this->assertFalse($outgoingAdjustment->isIncoming());
-        $this->assertTrue($outgoingAdjustment->isOutgoing());
+        $this->assertEquals(1, $withJournal);
+        $this->assertEquals(2, $total);
     }
 }

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Product;
 use App\Models\Inventory;
 use App\Models\InventoryAdjustment;
+use App\Models\StockMovement;
 use App\Models\Category;
 use Inertia\Inertia;
 use Illuminate\Http\Request;
@@ -21,16 +22,16 @@ class InventoryController extends Controller
             'stock_status' => $request->input('stock_status'), // low, out, available
         ];
 
-        // Product query with inventory and adjustment data
+        // Product query with inventory and movement data
         $productsQuery = Product::query()
             ->with(['category', 'inventory'])
-            // Menghitung total pembelian
+            // Menghitung total pembelian dari stock movements
             ->withSum('purchaseItems as purchase_quantity', 'quantity')
             ->withSum('purchaseItems as purchase_total', 'total_price')
             // Menghitung total penjualan per produk
             ->withSum('transactionDetails as sale_quantity', 'quantity')
-            // Menghitung total adjustment
-            ->withCount(['inventoryAdjustments as adjustment_count'])
+            // Menghitung total stock movements
+            ->withCount(['stockMovements as movement_count'])
             // Urutkan berdasarkan title produk
             ->orderBy('title');
 
@@ -64,24 +65,41 @@ class InventoryController extends Controller
 
         $products = $productsQuery->paginate(15)->withQueryString();
 
-        // Calculate summary
-        $summaryQuery = Product::query();
+        // Add calculated fields (average_buy_price, current_stock) to each product
+        $products->getCollection()->transform(function ($product) {
+            $product->average_buy_price = StockMovement::getAverageBuyPrice($product->id);
+            $product->current_stock = StockMovement::getCurrentStock($product->id);
+            return $product;
+        });
+
+        // Calculate summary using StockMovement
+        $totalStockValue = 0;
+        $totalSellValue = 0;
+        Product::chunk(100, function ($prods) use (&$totalStockValue, &$totalSellValue) {
+            foreach ($prods as $prod) {
+                $stock = StockMovement::getCurrentStock($prod->id);
+                $avgBuyPrice = StockMovement::getAverageBuyPrice($prod->id);
+                $totalStockValue += $stock * $avgBuyPrice;
+                $totalSellValue += $stock * $prod->sell_price;
+            }
+        });
+
         $summary = [
-            'total_products' => $summaryQuery->count(),
+            'total_products' => Product::count(),
             'total_stock' => Product::sum('stock'),
-            'total_stock_value' => Product::selectRaw('SUM(stock * buy_price) as value')->value('value') ?? 0,
-            'total_sell_value' => Product::selectRaw('SUM(stock * sell_price) as value')->value('value') ?? 0,
+            'total_stock_value' => $totalStockValue,
+            'total_sell_value' => $totalSellValue,
             'low_stock_count' => Product::where('stock', '>', 0)->where('stock', '<=', 10)->count(),
             'out_of_stock_count' => Product::where('stock', '<=', 0)->count(),
-            'total_adjustments' => InventoryAdjustment::count(),
-            'today_adjustments' => InventoryAdjustment::whereDate('created_at', today())->count(),
+            'total_movements' => StockMovement::count(),
+            'today_movements' => StockMovement::whereDate('created_at', today())->count(),
         ];
 
         // Get categories for filter
         $categories = Category::orderBy('name')->get(['id', 'name']);
 
-        // Get recent adjustments
-        $recentAdjustments = InventoryAdjustment::with(['product:id,title,barcode', 'user:id,name'])
+        // Get recent stock movements
+        $recentMovements = StockMovement::with(['product:id,title,barcode', 'user:id,name'])
             ->latest()
             ->take(5)
             ->get();
@@ -91,7 +109,18 @@ class InventoryController extends Controller
             'filters' => $filters,
             'summary' => $summary,
             'categories' => $categories,
-            'recentAdjustments' => $recentAdjustments,
+            'recentMovements' => $recentMovements,
+            // Legacy support
+            'recentAdjustments' => $recentMovements->map(function ($movement) {
+                return [
+                    'id' => $movement->id,
+                    'product' => $movement->product,
+                    'user' => $movement->user,
+                    'type' => $movement->movement_type,
+                    'quantity_change' => $movement->quantity,
+                    'created_at' => $movement->created_at,
+                ];
+            }),
         ]);
     }
 
@@ -105,7 +134,7 @@ class InventoryController extends Controller
             'inventory',
             'purchaseItems.purchase',
             'transactionDetails.transaction',
-            'inventoryAdjustments' => function ($q) {
+            'stockMovements' => function ($q) {
                 $q->with('user:id,name')->latest()->take(20);
             }
         ])
@@ -113,17 +142,23 @@ class InventoryController extends Controller
             ->withSum('transactionDetails as total_sold', 'quantity')
             ->findOrFail($id);
 
-        // Calculate movement summary
+        // Add calculated fields
+        $product->average_buy_price = StockMovement::getAverageBuyPrice($id);
+        $product->current_stock = StockMovement::getCurrentStock($id);
+
+        // Calculate movement summary from StockMovement
         $movementSummary = [
-            'total_in' => InventoryAdjustment::where('product_id', $id)
-                ->whereIn('type', ['in', 'purchase', 'return'])
-                ->sum('quantity_change'),
-            'total_out' => abs(InventoryAdjustment::where('product_id', $id)
-                ->whereIn('type', ['out', 'sale', 'damage'])
-                ->sum('quantity_change')),
-            'total_corrections' => InventoryAdjustment::where('product_id', $id)
-                ->where('type', 'correction')
+            'total_in' => StockMovement::where('product_id', $id)
+                ->incoming()
+                ->sum('quantity'),
+            'total_out' => abs(StockMovement::where('product_id', $id)
+                ->outgoing()
+                ->sum('quantity')),
+            'total_corrections' => StockMovement::where('product_id', $id)
+                ->where('movement_type', StockMovement::TYPE_CORRECTION)
                 ->count(),
+            'average_buy_price' => $product->average_buy_price,
+            'current_stock' => $product->current_stock,
         ];
 
         return response()->json([

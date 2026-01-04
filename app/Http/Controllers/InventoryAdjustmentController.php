@@ -5,10 +5,17 @@ namespace App\Http\Controllers;
 use App\Models\Inventory;
 use App\Models\InventoryAdjustment;
 use App\Models\Product;
+use App\Models\StockMovement;
 use App\Services\InventoryService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
+/**
+ * InventoryAdjustmentController
+ *
+ * Controller ini HANYA untuk mengelola adjustment manual dengan nomor jurnal.
+ * Data purchase dan sale ditampilkan melalui StockMovement.
+ */
 class InventoryAdjustmentController extends Controller
 {
     protected InventoryService $inventoryService;
@@ -20,10 +27,13 @@ class InventoryAdjustmentController extends Controller
 
     /**
      * Display a listing of inventory adjustments.
+     * Hanya menampilkan adjustment dengan nomor jurnal.
      */
     public function index(Request $request)
     {
+        // Query hanya untuk adjustment dengan nomor jurnal
         $query = InventoryAdjustment::with(['product', 'user'])
+            ->withJournal() // Hanya yang punya journal number
             ->orderBy('created_at', 'desc');
 
         // Filter by product
@@ -41,11 +51,17 @@ class InventoryAdjustmentController extends Controller
             $query->dateRange($request->from, $request->to);
         }
 
+        // Filter by journal number
+        if ($request->filled('journal_number')) {
+            $query->where('journal_number', 'like', "%{$request->journal_number}%");
+        }
+
         // Search
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where(function ($q) use ($search) {
-                $q->where('reason', 'like', "%{$search}%")
+                $q->where('journal_number', 'like', "%{$search}%")
+                    ->orWhere('reason', 'like', "%{$search}%")
                     ->orWhere('notes', 'like', "%{$search}%")
                     ->orWhereHas('product', function ($q) use ($search) {
                         $q->where('title', 'like', "%{$search}%")
@@ -67,16 +83,13 @@ class InventoryAdjustmentController extends Controller
             'products' => $products,
             'summary' => $summary,
             'types' => [
-                InventoryAdjustment::TYPE_IN => 'Stock In',
-                InventoryAdjustment::TYPE_OUT => 'Stock Out',
-                InventoryAdjustment::TYPE_ADJUSTMENT => 'Adjustment',
-                InventoryAdjustment::TYPE_PURCHASE => 'Purchase',
-                InventoryAdjustment::TYPE_SALE => 'Sale',
-                InventoryAdjustment::TYPE_RETURN => 'Return',
-                InventoryAdjustment::TYPE_DAMAGE => 'Damage',
-                InventoryAdjustment::TYPE_CORRECTION => 'Correction',
+                InventoryAdjustment::TYPE_ADJUSTMENT_IN => 'Adjustment Masuk',
+                InventoryAdjustment::TYPE_ADJUSTMENT_OUT => 'Adjustment Keluar',
+                InventoryAdjustment::TYPE_RETURN => 'Return Barang',
+                InventoryAdjustment::TYPE_DAMAGE => 'Barang Rusak',
+                InventoryAdjustment::TYPE_CORRECTION => 'Koreksi Stok',
             ],
-            'filters' => $request->only(['search', 'product_id', 'type', 'from', 'to']),
+            'filters' => $request->only(['search', 'product_id', 'type', 'from', 'to', 'journal_number']),
         ]);
     }
 
@@ -88,34 +101,34 @@ class InventoryAdjustmentController extends Controller
         $products = Product::with('inventory')
             ->select('id', 'title', 'barcode', 'stock')
             ->orderBy('title')
-            ->get();
+            ->get()
+            ->map(function ($product) {
+                // Tambahkan current_stock dari StockMovement
+                $product->current_stock = StockMovement::getCurrentStock($product->id);
+                return $product;
+            });
 
         return Inertia::render('InventoryAdjustment/Create', [
             'products' => $products,
             'types' => [
-                InventoryAdjustment::TYPE_IN => 'Stock In',
-                InventoryAdjustment::TYPE_OUT => 'Stock Out',
-                InventoryAdjustment::TYPE_ADJUSTMENT => 'Adjustment',
-                InventoryAdjustment::TYPE_DAMAGE => 'Damage',
-                InventoryAdjustment::TYPE_CORRECTION => 'Correction',
+                InventoryAdjustment::TYPE_ADJUSTMENT_IN => 'Adjustment Masuk',
+                InventoryAdjustment::TYPE_ADJUSTMENT_OUT => 'Adjustment Keluar',
+                InventoryAdjustment::TYPE_RETURN => 'Return Barang',
+                InventoryAdjustment::TYPE_DAMAGE => 'Barang Rusak',
+                InventoryAdjustment::TYPE_CORRECTION => 'Koreksi Stok',
             ],
         ]);
     }
 
     /**
      * Store a newly created adjustment.
+     * Membuat adjustment dengan nomor jurnal otomatis.
      */
     public function store(Request $request)
     {
         $request->validate([
             'product_id' => 'required|exists:products,id',
-            'type' => 'required|in:' . implode(',', [
-                InventoryAdjustment::TYPE_IN,
-                InventoryAdjustment::TYPE_OUT,
-                InventoryAdjustment::TYPE_ADJUSTMENT,
-                InventoryAdjustment::TYPE_DAMAGE,
-                InventoryAdjustment::TYPE_CORRECTION,
-            ]),
+            'type' => 'required|in:' . implode(',', InventoryAdjustment::getTypes()),
             'quantity' => 'required|numeric|min:0.01',
             'reason' => 'nullable|string|max:255',
             'notes' => 'nullable|string',
@@ -125,24 +138,27 @@ class InventoryAdjustmentController extends Controller
 
         if ($request->type === InventoryAdjustment::TYPE_CORRECTION) {
             // For correction, quantity is the new stock level
-            $this->inventoryService->stockCorrection(
+            $result = $this->inventoryService->stockCorrection(
                 $product,
                 $request->quantity,
                 $request->reason,
                 auth()->id()
             );
         } else {
-            $this->inventoryService->manualAdjustment(
+            $result = $this->inventoryService->createAdjustment(
                 $product,
                 $request->quantity,
                 $request->type,
                 $request->reason,
+                $request->notes,
                 auth()->id()
             );
         }
 
+        $journalNumber = $result['adjustment']->journal_number ?? 'N/A';
+
         return redirect()->route('inventory-adjustments.index')
-            ->with('success', 'Inventory adjustment created successfully.');
+            ->with('success', "Adjustment berhasil dibuat dengan nomor jurnal: {$journalNumber}");
     }
 
     /**
@@ -155,23 +171,12 @@ class InventoryAdjustmentController extends Controller
                 $query->with(['category', 'inventory']);
             },
             'user',
+            'stockMovement',
         ]);
-
-        // Get related reference if exists
-        $reference = null;
-        if ($inventoryAdjustment->reference_type && $inventoryAdjustment->reference_id) {
-            $reference = $inventoryAdjustment->reference();
-            if ($reference) {
-                if ($inventoryAdjustment->reference_type === 'purchase') {
-                    $reference->load(['items.product', 'user']);
-                } elseif ($inventoryAdjustment->reference_type === 'transaction') {
-                    $reference->load(['details.product', 'user', 'customer']);
-                }
-            }
-        }
 
         // Get other adjustments for the same product (recent 10)
         $relatedAdjustments = InventoryAdjustment::forProduct($inventoryAdjustment->product_id)
+            ->withJournal()
             ->where('id', '!=', $inventoryAdjustment->id)
             ->with('user')
             ->orderBy('created_at', 'desc')
@@ -180,29 +185,27 @@ class InventoryAdjustmentController extends Controller
 
         return Inertia::render('InventoryAdjustment/Show', [
             'adjustment' => $inventoryAdjustment,
-            'reference' => $reference,
             'relatedAdjustments' => $relatedAdjustments,
             'types' => [
-                InventoryAdjustment::TYPE_IN => 'Stock In',
-                InventoryAdjustment::TYPE_OUT => 'Stock Out',
-                InventoryAdjustment::TYPE_ADJUSTMENT => 'Adjustment',
-                InventoryAdjustment::TYPE_PURCHASE => 'Purchase',
-                InventoryAdjustment::TYPE_SALE => 'Sale',
-                InventoryAdjustment::TYPE_RETURN => 'Return',
-                InventoryAdjustment::TYPE_DAMAGE => 'Damage',
-                InventoryAdjustment::TYPE_CORRECTION => 'Correction',
+                InventoryAdjustment::TYPE_ADJUSTMENT_IN => 'Adjustment Masuk',
+                InventoryAdjustment::TYPE_ADJUSTMENT_OUT => 'Adjustment Keluar',
+                InventoryAdjustment::TYPE_RETURN => 'Return Barang',
+                InventoryAdjustment::TYPE_DAMAGE => 'Barang Rusak',
+                InventoryAdjustment::TYPE_CORRECTION => 'Koreksi Stok',
             ],
         ]);
     }
 
     /**
-     * Display product inventory detail with all adjustments.
+     * Display product inventory detail with all stock movements.
+     * Menampilkan semua pergerakan stok (purchase, sale, adjustment) dari StockMovement.
      */
     public function productHistory(Product $product, Request $request)
     {
         $product->load(['category', 'inventory']);
 
-        $query = InventoryAdjustment::forProduct($product->id)
+        // Query dari StockMovement untuk semua pergerakan
+        $query = StockMovement::forProduct($product->id)
             ->with('user')
             ->orderBy('created_at', 'desc');
 
@@ -216,56 +219,48 @@ class InventoryAdjustmentController extends Controller
             $query->ofType($request->type);
         }
 
-        $adjustments = $query->paginate(20)->withQueryString();
+        $movements = $query->paginate(20)->withQueryString();
 
         // Get summary for this product
         $summary = [
-            'total_in' => InventoryAdjustment::forProduct($product->id)
-                ->whereIn('type', [
-                    InventoryAdjustment::TYPE_IN,
-                    InventoryAdjustment::TYPE_PURCHASE,
-                    InventoryAdjustment::TYPE_RETURN
-                ])
-                ->where('quantity_change', '>', 0)
-                ->sum('quantity_change'),
-            'total_out' => abs(InventoryAdjustment::forProduct($product->id)
-                ->whereIn('type', [
-                    InventoryAdjustment::TYPE_OUT,
-                    InventoryAdjustment::TYPE_SALE,
-                    InventoryAdjustment::TYPE_DAMAGE
-                ])
-                ->where('quantity_change', '<', 0)
-                ->sum('quantity_change')),
-            'current_stock' => $product->stock,
+            'total_in' => StockMovement::forProduct($product->id)
+                ->incoming()
+                ->sum('quantity'),
+            'total_out' => abs(StockMovement::forProduct($product->id)
+                ->outgoing()
+                ->sum('quantity')),
+            'current_stock' => StockMovement::getCurrentStock($product->id),
+            'average_buy_price' => StockMovement::getAverageBuyPrice($product->id),
             'inventory_stock' => optional($product->inventory)->quantity ?? 0,
         ];
 
         return Inertia::render('InventoryAdjustment/ProductHistory', [
             'product' => $product,
-            'adjustments' => $adjustments,
+            'movements' => $movements,
+            // Legacy support
+            'adjustments' => $movements,
             'summary' => $summary,
             'types' => [
-                InventoryAdjustment::TYPE_IN => 'Stock In',
-                InventoryAdjustment::TYPE_OUT => 'Stock Out',
-                InventoryAdjustment::TYPE_ADJUSTMENT => 'Adjustment',
-                InventoryAdjustment::TYPE_PURCHASE => 'Purchase',
-                InventoryAdjustment::TYPE_SALE => 'Sale',
-                InventoryAdjustment::TYPE_RETURN => 'Return',
-                InventoryAdjustment::TYPE_DAMAGE => 'Damage',
-                InventoryAdjustment::TYPE_CORRECTION => 'Correction',
+                StockMovement::TYPE_PURCHASE => 'Pembelian',
+                StockMovement::TYPE_SALE => 'Penjualan',
+                StockMovement::TYPE_ADJUSTMENT_IN => 'Adjustment Masuk',
+                StockMovement::TYPE_ADJUSTMENT_OUT => 'Adjustment Keluar',
+                StockMovement::TYPE_RETURN => 'Return',
+                StockMovement::TYPE_DAMAGE => 'Barang Rusak',
+                StockMovement::TYPE_CORRECTION => 'Koreksi',
             ],
             'filters' => $request->only(['from', 'to', 'type']),
         ]);
     }
 
     /**
-     * Sync inventory with products.
+     * Sync inventory from stock movements.
      */
     public function syncInventory()
     {
-        $synced = $this->inventoryService->syncInventoryWithProducts();
+        $synced = $this->inventoryService->syncInventoryFromMovements();
 
         return redirect()->back()
-            ->with('success', "Successfully synced {$synced} products with inventory.");
+            ->with('success', "Berhasil sinkronisasi {$synced} produk dengan inventory.");
     }
 }

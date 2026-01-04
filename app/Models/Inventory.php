@@ -2,13 +2,20 @@
 
 namespace App\Models;
 
+use App\Traits\HasFormattedTimestamps;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * Inventory Model
+ *
+ * Model ini menyimpan data inventory per produk.
+ * Stock balance dihitung dari StockMovement ledger.
+ */
 class Inventory extends Model
 {
-    use HasFactory;
+    use HasFactory, HasFormattedTimestamps;
 
     protected $fillable = [
         'product_id',
@@ -20,6 +27,10 @@ class Inventory extends Model
         'quantity' => 'decimal:2',
     ];
 
+    // ==========================================
+    // RELATIONSHIPS
+    // ==========================================
+
     /**
      * Relationship to Product
      */
@@ -29,104 +40,51 @@ class Inventory extends Model
     }
 
     /**
-     * Get all adjustments for this inventory's product
+     * Get all stock movements for this inventory's product
+     */
+    public function stockMovements()
+    {
+        return $this->hasMany(StockMovement::class, 'product_id', 'product_id');
+    }
+
+    /**
+     * Get all adjustments for this inventory's product (legacy support)
      */
     public function adjustments()
     {
         return $this->hasMany(InventoryAdjustment::class, 'product_id', 'product_id');
     }
 
+    // ==========================================
+    // STOCK CALCULATION FROM STOCK MOVEMENTS
+    // ==========================================
+
     /**
-     * Add stock with adjustment tracking
+     * Get current stock balance from StockMovement ledger
      */
-    public function addStock(float $quantity, string $type = 'in', ?string $reason = null, ?string $referenceType = null, ?int $referenceId = null, ?int $userId = null): InventoryAdjustment
+    public function getStockBalanceAttribute(): float
     {
-        return DB::transaction(function () use ($quantity, $type, $reason, $referenceType, $referenceId, $userId) {
-            $quantityBefore = $this->quantity;
-            $this->quantity += $quantity;
-            $this->save();
-
-            // Also update product stock
-            if ($this->product) {
-                $this->product->increment('stock', $quantity);
-            }
-
-            return InventoryAdjustment::create([
-                'product_id' => $this->product_id,
-                'user_id' => $userId ?? auth()->id(),
-                'type' => $type,
-                'quantity_before' => $quantityBefore,
-                'quantity_change' => $quantity,
-                'quantity_after' => $this->quantity,
-                'reference_type' => $referenceType,
-                'reference_id' => $referenceId,
-                'reason' => $reason,
-            ]);
-        });
+        return StockMovement::getCurrentStock($this->product_id);
     }
 
     /**
-     * Reduce stock with adjustment tracking
+     * Sync quantity with StockMovement ledger
      */
-    public function reduceStock(float $quantity, string $type = 'out', ?string $reason = null, ?string $referenceType = null, ?int $referenceId = null, ?int $userId = null): InventoryAdjustment
+    public function syncQuantityFromMovements(): void
     {
-        return DB::transaction(function () use ($quantity, $type, $reason, $referenceType, $referenceId, $userId) {
-            $quantityBefore = $this->quantity;
+        $this->quantity = StockMovement::getCurrentStock($this->product_id);
+        $this->save();
 
-            // Prevent stock from going below zero
-            $actualReduction = min($quantity, $this->quantity);
-            $this->quantity = max(0, $this->quantity - $quantity);
-            $this->save();
-
-            // Also update product stock
-            if ($this->product) {
-                $newProductStock = max(0, $this->product->stock - $quantity);
-                $this->product->stock = $newProductStock;
-                $this->product->save();
-            }
-
-            return InventoryAdjustment::create([
-                'product_id' => $this->product_id,
-                'user_id' => $userId ?? auth()->id(),
-                'type' => $type,
-                'quantity_before' => $quantityBefore,
-                'quantity_change' => -$quantity,
-                'quantity_after' => $this->quantity,
-                'reference_type' => $referenceType,
-                'reference_id' => $referenceId,
-                'reason' => $reason,
-            ]);
-        });
+        // Also update product stock
+        if ($this->product) {
+            $this->product->stock = $this->quantity;
+            $this->product->save();
+        }
     }
 
-    /**
-     * Set stock to specific quantity with adjustment tracking
-     */
-    public function setStock(float $newQuantity, ?string $reason = null, ?int $userId = null): InventoryAdjustment
-    {
-        return DB::transaction(function () use ($newQuantity, $reason, $userId) {
-            $quantityBefore = $this->quantity;
-            $quantityChange = $newQuantity - $quantityBefore;
-            $this->quantity = $newQuantity;
-            $this->save();
-
-            // Also update product stock
-            if ($this->product) {
-                $this->product->stock = $newQuantity;
-                $this->product->save();
-            }
-
-            return InventoryAdjustment::create([
-                'product_id' => $this->product_id,
-                'user_id' => $userId ?? auth()->id(),
-                'type' => InventoryAdjustment::TYPE_CORRECTION,
-                'quantity_before' => $quantityBefore,
-                'quantity_change' => $quantityChange,
-                'quantity_after' => $newQuantity,
-                'reason' => $reason ?? 'Stock correction',
-            ]);
-        });
-    }
+    // ==========================================
+    // STATIC METHODS
+    // ==========================================
 
     /**
      * Get or create inventory for a product
@@ -142,12 +100,16 @@ class Inventory extends Model
         );
     }
 
+    // ==========================================
+    // SCOPES
+    // ==========================================
+
     /**
      * Scope for low stock
      */
     public function scopeLowStock($query, int $threshold = 10)
     {
-        return $query->where('quantity', '<=', $threshold);
+        return $query->where('quantity', '<=', $threshold)->where('quantity', '>', 0);
     }
 
     /**
@@ -157,5 +119,12 @@ class Inventory extends Model
     {
         return $query->where('quantity', '<=', 0);
     }
-}
 
+    /**
+     * Scope for available stock
+     */
+    public function scopeAvailable($query)
+    {
+        return $query->where('quantity', '>', 0);
+    }
+}

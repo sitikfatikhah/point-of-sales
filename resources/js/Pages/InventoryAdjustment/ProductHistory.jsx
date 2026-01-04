@@ -14,6 +14,7 @@ import {
 } from "@tabler/icons-react";
 import Table from "@/Components/Dashboard/Table";
 import Pagination from "@/Components/Dashboard/Pagination";
+import { formatDateTime } from "@/Utils/DateHelper";
 
 export default function ProductHistory({ product, adjustments, summary, types, filters }) {
     const [showFilters, setShowFilters] = useState(false);
@@ -57,18 +58,6 @@ export default function ProductHistory({ product, adjustments, summary, types, f
     };
 
     const hasActiveFilters = Object.values(filterData).some((v) => v !== "");
-
-    // Format datetime
-    const formatDateTime = (dateString) => {
-        if (!dateString) return "-";
-        return new Date(dateString).toLocaleString("id-ID", {
-            day: "numeric",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-        });
-    };
 
     // Format currency
     const formatCurrency = (value) => {

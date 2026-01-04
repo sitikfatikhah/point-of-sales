@@ -2,12 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\HasFormattedTimestamps;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class PaymentSetting extends Model
 {
-    use HasFactory;
+    use HasFactory, HasFormattedTimestamps;
 
     public const GATEWAY_MIDTRANS = 'midtrans';
     public const GATEWAY_XENDIT = 'xendit';

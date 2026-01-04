@@ -20,7 +20,7 @@ return new class extends Migration
             $table->string('barcode')->unique();
             $table->string('title');
             $table->text('description');
-            $table->bigInteger('buy_price');
+            $table->bigInteger('buy_price')->default(0); // Dihitung otomatis dari StockMovement (rata-rata)
             $table->bigInteger('sell_price');
             $table->integer('stock');
             $table->timestamps();

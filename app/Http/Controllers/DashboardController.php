@@ -61,7 +61,7 @@ class DashboardController extends Controller
             ->map(function ($transaction) {
                 return [
                     'invoice'  => $transaction->invoice,
-                    'date'     => Carbon::parse($transaction->created_at)->format('d M Y'),
+                    'date'     => $transaction->created_at_carbon?->format('d M Y') ?? '-',
                     'customer' => $transaction->customer?->name ?? '-',
                     'cashier'  => $transaction->cashier?->name ?? '-',
                     'total'    => (int) $transaction->grand_total,

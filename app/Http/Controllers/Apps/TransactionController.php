@@ -9,6 +9,7 @@ use App\Models\Customer;
 use App\Models\User;
 use App\Models\Transaction;
 use App\Models\PaymentSetting;
+use App\Models\StockMovement;
 use App\Services\InventoryService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Str;
@@ -18,6 +19,7 @@ use App\Services\Payments\PaymentGatewayManager;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
+use Exception;
 
 class TransactionController extends Controller
 {
@@ -72,6 +74,7 @@ class TransactionController extends Controller
 
     /**
      * Search products by partial barcode or title for autocomplete suggestions
+     * Only shows products with stock > 0
      */
     public function suggestProducts(Request $request)
     {
@@ -84,6 +87,7 @@ class TransactionController extends Controller
             ]);
         }
 
+        // Filter hanya produk dengan stok > 0
         $products = Product::where('stock', '>', 0)
             ->where(function ($q) use ($query) {
                 $q->where('barcode', 'like', "%{$query}%")
@@ -91,7 +95,12 @@ class TransactionController extends Controller
             })
             ->select('id', 'barcode', 'title', 'sell_price', 'stock')
             ->limit(10)
-            ->get();
+            ->get()
+            ->map(function ($product) {
+                // Tambahkan current_stock dari StockMovement
+                $product->current_stock = StockMovement::getCurrentStock($product->id);
+                return $product;
+            });
 
         return response()->json([
             'success' => true,
@@ -105,34 +114,45 @@ class TransactionController extends Controller
         $product = Product::where('barcode', $request->barcode)->first();
 
         if (!$product) {
-            return redirect()->back()->with('error', 'Product not found.');
+            return redirect()->back()->with('error', 'Produk tidak ditemukan.');
         }
 
-        if ($product->stock < $request->quantity) {
-            return redirect()->back()->with('error', 'Out of Stock Product!.');
+        // Validasi stok menggunakan StockMovement ledger
+        $currentStock = StockMovement::getCurrentStock($product->id);
+
+        if ($currentStock <= 0) {
+            return redirect()->back()->with('error', "Stok produk '{$product->title}' habis. Tidak dapat menambahkan ke keranjang.");
         }
 
-        // Cari cart berdasarkan product_id
-        $cart = Cart::where('product_id', $product->id)
-                    ->where('cashier_id', auth()->id())
-                    ->first();
+        // Hitung total quantity di cart + yang diminta
+        $existingCart = Cart::where('product_id', $product->id)
+                            ->where('cashier_id', auth()->id())
+                            ->first();
+        $cartQuantity = $existingCart ? $existingCart->quantity : 0;
+        $totalRequested = $cartQuantity + $request->quantity;
 
-        if ($cart) {
-            // $cart->increment('quantity', $request->quantity);
-            $cart->price = $product->sell_price * $cart->quantity;
-            $cart->save();
+        if ($currentStock < $totalRequested) {
+            return redirect()->back()->with('error', "Stok produk '{$product->title}' tidak mencukupi. Stok tersedia: {$currentStock}, di keranjang: {$cartQuantity}, diminta: {$request->quantity}");
+        }
+
+        // Tambahkan ke cart
+        if ($existingCart) {
+            $existingCart->increment('quantity', $request->quantity);
+            $existingCart->price = $product->sell_price * $existingCart->quantity;
+            $existingCart->save();
         } else {
             Cart::create([
                 'cashier_id' => auth()->id(),
                 'product_id' => $product->id,
                 'quantity' => $request->quantity,
                 'price' => $product->sell_price * $request->quantity,
-                'discount' => 0, // default
+                'discount' => 0,
             ]);
         }
 
-        return redirect()->route('transactions.index')->with('success', 'Product Added Successfully!.');
+        return redirect()->route('transactions.index')->with('success', 'Produk berhasil ditambahkan!');
     }
+
     public function destroyCart($cart_id)
     {
         $cart = Cart::with('product')->find($cart_id);
@@ -158,12 +178,25 @@ class TransactionController extends Controller
             return redirect()->route('transactions.index')->with('error', 'Gateway pembayaran belum dikonfigurasi.');
         }
 
+        // Validasi stok sebelum transaksi
+        $carts = Cart::with('product')->where('cashier_id', auth()->id())->get();
+
+        if ($carts->isEmpty()) {
+            return redirect()->route('transactions.index')->with('error', 'Keranjang belanja kosong.');
+        }
+
+        try {
+            $this->inventoryService->validateStockOrFail($carts->toArray());
+        } catch (Exception $e) {
+            return redirect()->route('transactions.index')->with('error', $e->getMessage());
+        }
+
         $invoice = 'TRX-' . Str::upper(Str::random(10));
         $isCashPayment = empty($paymentGateway);
         $cashAmount = $isCashPayment ? $request->cash : $request->grand_total;
         $changeAmount = $isCashPayment ? $request->change : 0;
 
-        $transaction = DB::transaction(function () use ($request, $invoice, $cashAmount, $changeAmount, $paymentGateway, $isCashPayment) {
+        $transaction = DB::transaction(function () use ($request, $invoice, $cashAmount, $changeAmount, $paymentGateway, $isCashPayment, $carts) {
 
             $transaction = Transaction::create([
                 'cashier_id' => auth()->id(),
@@ -177,21 +210,20 @@ class TransactionController extends Controller
                 'payment_status' => $isCashPayment ? 'paid' : 'pending',
             ]);
 
-            $carts = Cart::with('product')->where('cashier_id', auth()->id())->get();
-
             foreach ($carts as $cart) {
                 // Simpan detail transaksi
                 $transaction->details()->create([
                     'transaction_id' => $transaction->id,
-                    'product_id' => $cart->product_id, // harus ada
+                    'product_id' => $cart->product_id,
                     'barcode' => $cart->product->barcode ?? $cart->product->id,
                     'quantity' => $cart->quantity,
                     'price' => $cart->price,
                     'discount' => $cart->discount ?? 0,
                 ]);
 
-                // Hitung profit
-                $total_buy_price = $cart->product->buy_price * $cart->quantity;
+                // Hitung profit menggunakan average buy price dari StockMovement
+                $averageBuyPrice = StockMovement::getAverageBuyPrice($cart->product_id);
+                $total_buy_price = $averageBuyPrice * $cart->quantity;
                 $total_sell_price = $cart->product->sell_price * $cart->quantity;
                 $profits = $total_sell_price - $total_buy_price;
 
@@ -284,8 +316,8 @@ class TransactionController extends Controller
             ->where('invoice', $invoice)
             ->firstOrFail();
 
-        // Get inventory adjustments related to this transaction
-        $inventoryAdjustments = \App\Models\InventoryAdjustment::with('product:id,title,barcode', 'user:id,name')
+        // Get stock movements related to this transaction
+        $stockMovements = StockMovement::with('product:id,title,barcode', 'user:id,name')
             ->where('reference_type', 'transaction')
             ->where('reference_id', $transaction->id)
             ->orderBy('created_at', 'desc')
@@ -293,7 +325,20 @@ class TransactionController extends Controller
 
         return Inertia::render('Dashboard/Transactions/Show', [
             'transaction' => $transaction,
-            'inventoryAdjustments' => $inventoryAdjustments,
+            'stockMovements' => $stockMovements,
+            // Legacy support - map to old structure
+            'inventoryAdjustments' => $stockMovements->map(function ($movement) {
+                return [
+                    'id' => $movement->id,
+                    'product' => $movement->product,
+                    'user' => $movement->user,
+                    'type' => $movement->movement_type,
+                    'quantity_before' => $movement->quantity_before,
+                    'quantity_change' => $movement->quantity,
+                    'quantity_after' => $movement->quantity_after,
+                    'created_at' => $movement->created_at,
+                ];
+            }),
         ]);
     }
 }

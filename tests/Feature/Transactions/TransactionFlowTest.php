@@ -7,6 +7,7 @@ use App\Models\Category;
 use App\Models\Customer;
 use App\Models\Product;
 use App\Models\PaymentSetting;
+use App\Models\StockMovement;
 use App\Models\Transaction;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -43,7 +44,7 @@ class TransactionFlowTest extends TestCase
         $quantity = 2;
         $cart = Cart::create([
             'cashier_id' => $cashier->id,
-            'barcode' => $product->id,
+            'product_id' => $product->id,
             'quantity' => $quantity,
             'price' => $product->sell_price * $quantity,
         ]);
@@ -79,13 +80,16 @@ class TransactionFlowTest extends TestCase
 
         $this->assertSame(1, $transaction->details->count());
         $detail = $transaction->details->first();
-        $this->assertSame($product->id, $detail->barcode);
+        $this->assertSame($product->id, $detail->product_id);
+        $this->assertSame($product->barcode, $detail->barcode);
         $this->assertSame($quantity, (int) $detail->quantity);
-        $this->assertSame($cart->price, (int) $detail->price);
+        $this->assertSame((int) $cart->price, (int) $detail->price);
 
         $this->assertSame(1, $transaction->profits->count());
         $profit = $transaction->profits->first();
-        $expectedProfit = ($product->sell_price - $product->buy_price) * $quantity;
+        // buy_price from StockMovement average (45000)
+        $buyPrice = 45000;
+        $expectedProfit = ($product->sell_price - $buyPrice) * $quantity;
         $this->assertSame($expectedProfit, (int) $profit->total);
 
         $this->assertDatabaseMissing('carts', ['id' => $cart->id]);
@@ -115,7 +119,9 @@ class TransactionFlowTest extends TestCase
         ]);
 
         $transaction->details()->create([
-            'barcode' => $product->id,
+            'product_id' => $product->id,
+            'barcode' => $product->barcode,
+            'discount' => 0,
             'quantity' => 3,
             'price' => $product->sell_price * 3,
         ]);
@@ -165,7 +171,7 @@ class TransactionFlowTest extends TestCase
 
         $cart = Cart::create([
             'cashier_id' => $cashier->id,
-            'barcode' => $product->id,
+            'product_id' => $product->id,
             'quantity' => 1,
             'price' => $product->sell_price,
         ]);
@@ -210,7 +216,7 @@ class TransactionFlowTest extends TestCase
             'image' => 'category.png',
         ]);
 
-        return Product::create([
+        $product = Product::create([
             'category_id' => $category->id,
             'image' => 'product.png',
             'barcode' => 'BRCD-' . Str::upper(Str::random(10)),
@@ -220,5 +226,22 @@ class TransactionFlowTest extends TestCase
             'sell_price' => 60000,
             'stock' => 25,
         ]);
+
+        // Create initial stock movement for stock validation to work
+        StockMovement::create([
+            'product_id' => $product->id,
+            'user_id' => 1,
+            'movement_type' => StockMovement::TYPE_PURCHASE,
+            'reference_type' => 'initial',
+            'reference_id' => 0,
+            'quantity' => 25,
+            'unit_price' => 45000,
+            'total_price' => 45000 * 25,
+            'quantity_before' => 0,
+            'quantity_after' => 25,
+            'notes' => 'Initial stock for testing',
+        ]);
+
+        return $product;
     }
 }

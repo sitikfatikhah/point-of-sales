@@ -2,38 +2,37 @@
 
 namespace App\Models;
 
+use App\Traits\HasFormattedTimestamps;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
+/**
+ * InventoryAdjustment Model
+ *
+ * Model ini HANYA untuk pencatatan adjustment manual dengan nomor jurnal.
+ * Data purchase dan sale TIDAK dicatat di sini, melainkan di StockMovement.
+ */
 class InventoryAdjustment extends Model
 {
-    use HasFactory;
+    use HasFactory, HasFormattedTimestamps;
 
     protected $fillable = [
+        'journal_number',
         'product_id',
         'user_id',
         'type',
-        'quantity_before',
         'quantity_change',
-        'quantity_after',
-        'reference_type',
-        'reference_id',
         'reason',
         'notes',
     ];
 
     protected $casts = [
-        'quantity_before' => 'decimal:2',
         'quantity_change' => 'decimal:2',
-        'quantity_after' => 'decimal:2',
     ];
 
-    // Constants for types
-    const TYPE_IN = 'in';
-    const TYPE_OUT = 'out';
-    const TYPE_ADJUSTMENT = 'adjustment';
-    const TYPE_PURCHASE = 'purchase';
-    const TYPE_SALE = 'sale';
+    // Constants for types (only manual adjustment types)
+    const TYPE_ADJUSTMENT_IN = 'adjustment_in';
+    const TYPE_ADJUSTMENT_OUT = 'adjustment_out';
     const TYPE_RETURN = 'return';
     const TYPE_DAMAGE = 'damage';
     const TYPE_CORRECTION = 'correction';
@@ -44,16 +43,39 @@ class InventoryAdjustment extends Model
     public static function getTypes(): array
     {
         return [
-            self::TYPE_IN,
-            self::TYPE_OUT,
-            self::TYPE_ADJUSTMENT,
-            self::TYPE_PURCHASE,
-            self::TYPE_SALE,
+            self::TYPE_ADJUSTMENT_IN,
+            self::TYPE_ADJUSTMENT_OUT,
             self::TYPE_RETURN,
             self::TYPE_DAMAGE,
             self::TYPE_CORRECTION,
         ];
     }
+
+    /**
+     * Get types that increase stock
+     */
+    public static function getIncomingTypes(): array
+    {
+        return [
+            self::TYPE_ADJUSTMENT_IN,
+            self::TYPE_RETURN,
+        ];
+    }
+
+    /**
+     * Get types that decrease stock
+     */
+    public static function getOutgoingTypes(): array
+    {
+        return [
+            self::TYPE_ADJUSTMENT_OUT,
+            self::TYPE_DAMAGE,
+        ];
+    }
+
+    // ==========================================
+    // RELATIONSHIPS
+    // ==========================================
 
     /**
      * Relationship to Product
@@ -72,27 +94,17 @@ class InventoryAdjustment extends Model
     }
 
     /**
-     * Get the related reference model (Purchase, Transaction, etc.)
+     * Get related stock movement
      */
-    public function reference()
+    public function stockMovement()
     {
-        if (!$this->reference_type || !$this->reference_id) {
-            return null;
-        }
-
-        $modelClass = match ($this->reference_type) {
-            'purchase' => Purchase::class,
-            'transaction' => Transaction::class,
-            'purchase_item' => PurchaseItem::class,
-            default => null,
-        };
-
-        if ($modelClass) {
-            return $modelClass::find($this->reference_id);
-        }
-
-        return null;
+        return $this->hasOne(StockMovement::class, 'reference_id')
+            ->where('reference_type', 'adjustment');
     }
+
+    // ==========================================
+    // SCOPES
+    // ==========================================
 
     /**
      * Scope for filtering by type
@@ -119,29 +131,48 @@ class InventoryAdjustment extends Model
     }
 
     /**
-     * Get type label
+     * Scope for only records with journal number
      */
-    public function getTypeLabelAttribute(): string
+    public function scopeWithJournal($query)
     {
-        return match ($this->type) {
-            self::TYPE_IN => 'Barang Masuk',
-            self::TYPE_OUT => 'Barang Keluar',
-            self::TYPE_ADJUSTMENT => 'Penyesuaian',
-            self::TYPE_PURCHASE => 'Pembelian',
-            self::TYPE_SALE => 'Penjualan',
-            self::TYPE_RETURN => 'Retur',
-            self::TYPE_DAMAGE => 'Kerusakan',
-            self::TYPE_CORRECTION => 'Koreksi',
-            default => 'Unknown',
-        };
+        return $query->whereNotNull('journal_number');
     }
+
+    // ==========================================
+    // STATIC METHODS
+    // ==========================================
+
+    /**
+     * Generate journal number for adjustment
+     */
+    public static function generateJournalNumber(): string
+    {
+        $prefix = 'ADJ';
+        $date = now()->format('Ymd');
+        $lastAdjustment = self::withJournal()
+            ->whereDate('created_at', now())
+            ->orderBy('id', 'desc')
+            ->first();
+
+        if ($lastAdjustment && preg_match('/ADJ' . $date . '(\d{4})/', $lastAdjustment->journal_number, $matches)) {
+            $sequence = str_pad((int)$matches[1] + 1, 4, '0', STR_PAD_LEFT);
+        } else {
+            $sequence = '0001';
+        }
+
+        return "{$prefix}{$date}{$sequence}";
+    }
+
+    // ==========================================
+    // ACCESSORS
+    // ==========================================
 
     /**
      * Check if this is an incoming adjustment
      */
     public function isIncoming(): bool
     {
-        return in_array($this->type, [self::TYPE_IN, self::TYPE_PURCHASE, self::TYPE_RETURN]);
+        return in_array($this->type, self::getIncomingTypes());
     }
 
     /**
@@ -149,6 +180,21 @@ class InventoryAdjustment extends Model
      */
     public function isOutgoing(): bool
     {
-        return in_array($this->type, [self::TYPE_OUT, self::TYPE_SALE, self::TYPE_DAMAGE]);
+        return in_array($this->type, self::getOutgoingTypes());
+    }
+
+    /**
+     * Get type label in Indonesian
+     */
+    public function getTypeLabelAttribute(): string
+    {
+        return match ($this->type) {
+            self::TYPE_ADJUSTMENT_IN => 'Adjustment Masuk',
+            self::TYPE_ADJUSTMENT_OUT => 'Adjustment Keluar',
+            self::TYPE_RETURN => 'Return Barang',
+            self::TYPE_DAMAGE => 'Barang Rusak',
+            self::TYPE_CORRECTION => 'Koreksi Stok',
+            default => $this->type,
+        };
     }
 }

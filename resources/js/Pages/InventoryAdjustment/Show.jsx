@@ -13,19 +13,9 @@ import {
     IconExternalLink,
 } from "@tabler/icons-react";
 import Table from "@/Components/Dashboard/Table";
+import { formatDateTime, formatDateTimeFull } from "@/Utils/DateHelper";
 
 export default function Show({ adjustment, reference, relatedAdjustments, types }) {
-    // Format datetime
-    const formatDateTime = (dateString) => {
-        if (!dateString) return "-";
-        return new Date(dateString).toLocaleString("id-ID", {
-            day: "numeric",
-            month: "long",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-        });
-    };
 
     // Format currency
     const formatCurrency = (value) => {

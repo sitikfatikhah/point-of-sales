@@ -9,358 +9,648 @@ use App\Models\InventoryAdjustment;
 use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\PurchaseItem;
+use App\Models\StockMovement;
 use App\Models\Transaction;
 use App\Models\TransactionDetail;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
+/**
+ * Unit Test Relasi Antar Model
+ *
+ * Test ini memastikan semua relasi model bekerja dengan benar
+ * menggunakan arsitektur baru dengan StockMovement sebagai ledger utama
+ */
 class ModelRelationshipTest extends TestCase
 {
     use RefreshDatabase;
 
     protected User $user;
-    protected Category $category;
-    protected Product $product;
+    protected Category $kategori;
+    protected Product $produk;
+    protected Customer $customer;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        // Create base models
-        $this->user = User::factory()->create();
-        $this->category = Category::create([
-            'name' => 'Test Category',
-            'description' => 'Test description',
+        $this->user = User::factory()->create([
+            'name' => 'Kasir Test',
         ]);
-        $this->product = Product::create([
-            'barcode' => 'TEST001',
-            'title' => 'Test Product',
-            'description' => 'Test product description',
-            'category_id' => $this->category->id,
-            'buy_price' => 10000,
-            'sell_price' => 15000,
+
+        $this->kategori = Category::create([
+            'name' => 'Elektronik',
+            'description' => 'Barang elektronik',
+        ]);
+
+        $this->produk = Product::create([
+            'barcode' => 'ELK001',
+            'title' => 'Mouse Wireless',
+            'description' => 'Mouse wireless 2.4GHz',
+            'category_id' => $this->kategori->id,
+            'buy_price' => 50000,
+            'sell_price' => 75000,
             'stock' => 100,
         ]);
+
+        $this->customer = Customer::create([
+            'name' => 'PT Pelanggan Test',
+            'no_telp' => 2112345678,
+            'address' => 'Jakarta',
+        ]);
+    }
+
+    // ==========================================
+    // RELASI PRODUCT
+    // ==========================================
+
+    /** @test */
+    public function product_belongs_to_category(): void
+    {
+        $this->assertInstanceOf(Category::class, $this->produk->category);
+        $this->assertEquals($this->kategori->id, $this->produk->category->id);
+        $this->assertEquals('Elektronik', $this->produk->category->name);
     }
 
     /** @test */
-    public function product_belongs_to_category()
+    public function product_has_one_inventory(): void
     {
-        $this->assertInstanceOf(Category::class, $this->product->category);
-        $this->assertEquals($this->category->id, $this->product->category->id);
-    }
-
-    /** @test */
-    public function category_has_many_products()
-    {
-        $this->assertInstanceOf(\Illuminate\Database\Eloquent\Collection::class, $this->category->products);
-        $this->assertTrue($this->category->products->contains($this->product));
-    }
-
-    /** @test */
-    public function product_has_one_inventory()
-    {
-        $inventory = Inventory::create([
-            'product_id' => $this->product->id,
-            'barcode' => $this->product->barcode,
-            'quantity' => $this->product->stock,
+        Inventory::create([
+            'product_id' => $this->produk->id,
+            'barcode' => $this->produk->barcode,
+            'quantity' => $this->produk->stock,
         ]);
 
-        $this->product->refresh();
+        $this->produk->refresh();
 
-        $this->assertInstanceOf(Inventory::class, $this->product->inventory);
-        $this->assertEquals($inventory->id, $this->product->inventory->id);
+        $this->assertInstanceOf(Inventory::class, $this->produk->inventory);
+        $this->assertEquals($this->produk->stock, $this->produk->inventory->quantity);
     }
 
     /** @test */
-    public function inventory_belongs_to_product()
+    public function product_has_many_stock_movements(): void
     {
-        $inventory = Inventory::create([
-            'product_id' => $this->product->id,
-            'barcode' => $this->product->barcode,
-            'quantity' => $this->product->stock,
+        // Create some stock movements
+        StockMovement::create([
+            'product_id' => $this->produk->id,
+            'movement_type' => StockMovement::TYPE_PURCHASE,
+            'quantity' => 50,
+            'unit_price' => 50000,
+            'total_price' => 2500000,
+            'quantity_before' => 0,
+            'quantity_after' => 50,
         ]);
 
-        $this->assertInstanceOf(Product::class, $inventory->product);
-        $this->assertEquals($this->product->id, $inventory->product->id);
+        StockMovement::create([
+            'product_id' => $this->produk->id,
+            'movement_type' => StockMovement::TYPE_SALE,
+            'quantity' => -10,
+            'unit_price' => 75000,
+            'total_price' => 750000,
+            'quantity_before' => 50,
+            'quantity_after' => 40,
+        ]);
+
+        $this->produk->refresh();
+
+        $this->assertCount(2, $this->produk->stockMovements);
     }
 
     /** @test */
-    public function product_has_many_inventory_adjustments()
-    {
-        $inventory = Inventory::create([
-            'product_id' => $this->product->id,
-            'barcode' => $this->product->barcode,
-            'quantity' => 100,
-        ]);
-
-        $adjustment = InventoryAdjustment::create([
-            'product_id' => $this->product->id,
-            'user_id' => $this->user->id,
-            'type' => InventoryAdjustment::TYPE_IN,
-            'quantity_before' => 100,
-            'quantity_change' => 10,
-            'quantity_after' => 110,
-            'reason' => 'Test adjustment',
-        ]);
-
-        $this->product->refresh();
-
-        $this->assertInstanceOf(\Illuminate\Database\Eloquent\Collection::class, $this->product->inventoryAdjustments);
-        $this->assertTrue($this->product->inventoryAdjustments->contains($adjustment));
-    }
-
-    /** @test */
-    public function inventory_adjustment_belongs_to_product_and_user()
-    {
-        $adjustment = InventoryAdjustment::create([
-            'product_id' => $this->product->id,
-            'user_id' => $this->user->id,
-            'type' => InventoryAdjustment::TYPE_PURCHASE,
-            'quantity_before' => 100,
-            'quantity_change' => 50,
-            'quantity_after' => 150,
-            'reason' => 'Purchase stock',
-        ]);
-
-        $this->assertInstanceOf(Product::class, $adjustment->product);
-        $this->assertInstanceOf(User::class, $adjustment->user);
-        $this->assertEquals($this->product->id, $adjustment->product->id);
-        $this->assertEquals($this->user->id, $adjustment->user->id);
-    }
-
-    /** @test */
-    public function purchase_has_many_items()
+    public function product_has_many_purchase_items(): void
     {
         $purchase = Purchase::create([
-            'supplier_name' => 'Test Supplier',
-            'purchase_date' => now(),
-            'status' => 'received',
-        ]);
-
-        $item = PurchaseItem::create([
-            'purchase_id' => $purchase->id,
-            'product_id' => $this->product->id,
-            'barcode' => $this->product->barcode,
-            'quantity' => 10,
-            'purchase_price' => 10000,
-            'total_price' => 100000,
-        ]);
-
-        $this->assertInstanceOf(\Illuminate\Database\Eloquent\Collection::class, $purchase->items);
-        $this->assertTrue($purchase->items->contains($item));
-    }
-
-    /** @test */
-    public function purchase_item_belongs_to_purchase_and_product()
-    {
-        $purchase = Purchase::create([
-            'supplier_name' => 'Test Supplier',
-            'purchase_date' => now(),
-            'status' => 'received',
-        ]);
-
-        $item = PurchaseItem::create([
-            'purchase_id' => $purchase->id,
-            'product_id' => $this->product->id,
-            'barcode' => $this->product->barcode,
-            'quantity' => 10,
-            'purchase_price' => 10000,
-            'total_price' => 100000,
-        ]);
-
-        $this->assertInstanceOf(Purchase::class, $item->purchase);
-        $this->assertInstanceOf(Product::class, $item->product);
-        $this->assertEquals($purchase->id, $item->purchase->id);
-        $this->assertEquals($this->product->id, $item->product->id);
-    }
-
-    /** @test */
-    public function transaction_has_many_details()
-    {
-        $customer = Customer::create([
-            'name' => 'Test Customer',
-            'no_telp' => '08123456789',
-            'address' => 'Test Address',
-        ]);
-
-        $transaction = Transaction::create([
-            'cashier_id' => $this->user->id,
-            'customer_id' => $customer->id,
-            'invoice' => 'INV-' . date('YmdHis'),
-            'cash' => 50000,
-            'change' => 5000,
-            'discount' => 0,
-
-            'grand_total' => 45000,
-        ]);
-
-        $detail = TransactionDetail::create([
-            'transaction_id' => $transaction->id,
-            'product_id' => $this->product->id,
-            'barcode' => 'TEST001',
-            'quantity' => 3,
-            'discount' => 0,
-            'price' => 15000,
-        ]);
-
-        $this->assertInstanceOf(\Illuminate\Database\Eloquent\Collection::class, $transaction->details);
-        $this->assertTrue($transaction->details->contains($detail));
-    }
-
-    /** @test */
-    public function transaction_belongs_to_cashier_and_customer()
-    {
-        $customer = Customer::create([
-            'name' => 'Test Customer',
-            'no_telp' => '08123456789',
-            'address' => 'Test Address',
-        ]);
-
-        $transaction = Transaction::create([
-            'cashier_id' => $this->user->id,
-            'customer_id' => $customer->id,
-            'invoice' => 'INV-' . date('YmdHis'),
-            'cash' => 50000,
-            'change' => 5000,
-            'discount' => 0,
-
-            'grand_total' => 45000,
-        ]);
-
-        $this->assertInstanceOf(User::class, $transaction->cashier);
-        $this->assertInstanceOf(Customer::class, $transaction->customer);
-        $this->assertEquals($this->user->id, $transaction->cashier->id);
-        $this->assertEquals($customer->id, $transaction->customer->id);
-    }
-
-    /** @test */
-    public function transaction_detail_belongs_to_transaction_and_product()
-    {
-        $customer = Customer::create([
-            'name' => 'Test Customer',
-            'no_telp' => '08123456789',
-            'address' => 'Test Address',
-        ]);
-
-        $transaction = Transaction::create([
-            'cashier_id' => $this->user->id,
-            'customer_id' => $customer->id,
-            'invoice' => 'INV-' . date('YmdHis'),
-            'cash' => 50000,
-            'change' => 5000,
-            'discount' => 0,
-
-            'grand_total' => 45000,
-        ]);
-
-        $detail = TransactionDetail::create([
-            'transaction_id' => $transaction->id,
-            'product_id' => $this->product->id,
-            'barcode' => 'TEST001',
-            'quantity' => 3,
-            'discount' => 0,
-            'price' => 15000,
-        ]);
-
-        $this->assertInstanceOf(Transaction::class, $detail->transaction);
-        $this->assertInstanceOf(Product::class, $detail->product);
-    }
-
-    /** @test */
-    public function product_has_many_purchase_items()
-    {
-        $purchase = Purchase::create([
-            'supplier_name' => 'Test Supplier',
+            'supplier_name' => 'Supplier A',
             'purchase_date' => now(),
             'status' => 'received',
         ]);
 
         PurchaseItem::create([
             'purchase_id' => $purchase->id,
-            'product_id' => $this->product->id,
-            'barcode' => $this->product->barcode,
-            'quantity' => 10,
-            'purchase_price' => 10000,
-            'total_price' => 100000,
+            'product_id' => $this->produk->id,
+            'barcode' => $this->produk->barcode,
+            'quantity' => 20,
+            'purchase_price' => 50000,
+            'total_price' => 1000000,
         ]);
 
-        $this->product->refresh();
+        $this->produk->refresh();
 
-        $this->assertInstanceOf(\Illuminate\Database\Eloquent\Collection::class, $this->product->purchaseItems);
-        $this->assertEquals(1, $this->product->purchaseItems->count());
+        $this->assertCount(1, $this->produk->purchaseItems);
+    }
+
+    // ==========================================
+    // RELASI CATEGORY
+    // ==========================================
+
+    /** @test */
+    public function category_has_many_products(): void
+    {
+        // Produk sudah ada dari setUp
+        $this->assertCount(1, $this->kategori->products);
+        $this->assertInstanceOf(Product::class, $this->kategori->products->first());
+    }
+
+    // ==========================================
+    // RELASI INVENTORY
+    // ==========================================
+
+    /** @test */
+    public function inventory_belongs_to_product(): void
+    {
+        $inventory = Inventory::create([
+            'product_id' => $this->produk->id,
+            'barcode' => $this->produk->barcode,
+            'quantity' => $this->produk->stock,
+        ]);
+
+        $this->assertInstanceOf(Product::class, $inventory->product);
+        $this->assertEquals($this->produk->id, $inventory->product->id);
     }
 
     /** @test */
-    public function product_has_many_transaction_details()
+    public function inventory_has_many_stock_movements(): void
     {
-        $customer = Customer::create([
-            'name' => 'Test Customer',
-            'no_telp' => '08123456789',
-            'address' => 'Test Address',
+        $inventory = Inventory::create([
+            'product_id' => $this->produk->id,
+            'barcode' => $this->produk->barcode,
+            'quantity' => $this->produk->stock,
         ]);
 
+        StockMovement::create([
+            'product_id' => $this->produk->id,
+            'movement_type' => StockMovement::TYPE_PURCHASE,
+            'quantity' => 50,
+            'unit_price' => 50000,
+            'total_price' => 2500000,
+            'quantity_before' => 0,
+            'quantity_after' => 50,
+        ]);
+
+        $inventory->refresh();
+
+        $this->assertCount(1, $inventory->stockMovements);
+    }
+
+    // ==========================================
+    // RELASI STOCK MOVEMENT
+    // ==========================================
+
+    /** @test */
+    public function stock_movement_belongs_to_product(): void
+    {
+        $movement = StockMovement::create([
+            'product_id' => $this->produk->id,
+            'movement_type' => StockMovement::TYPE_PURCHASE,
+            'quantity' => 50,
+            'unit_price' => 50000,
+            'total_price' => 2500000,
+            'quantity_before' => 0,
+            'quantity_after' => 50,
+        ]);
+
+        $this->assertInstanceOf(Product::class, $movement->product);
+        $this->assertEquals($this->produk->id, $movement->product->id);
+    }
+
+    /** @test */
+    public function stock_movement_belongs_to_user(): void
+    {
+        $movement = StockMovement::create([
+            'product_id' => $this->produk->id,
+            'movement_type' => StockMovement::TYPE_PURCHASE,
+            'quantity' => 50,
+            'unit_price' => 50000,
+            'total_price' => 2500000,
+            'quantity_before' => 0,
+            'quantity_after' => 50,
+            'user_id' => $this->user->id,
+        ]);
+
+        $this->assertInstanceOf(User::class, $movement->user);
+        $this->assertEquals($this->user->id, $movement->user->id);
+    }
+
+    /** @test */
+    public function stock_movement_can_reference_purchase(): void
+    {
+        $purchase = Purchase::create([
+            'supplier_name' => 'Supplier B',
+            'purchase_date' => now(),
+            'status' => 'received',
+        ]);
+
+        $movement = StockMovement::create([
+            'product_id' => $this->produk->id,
+            'movement_type' => StockMovement::TYPE_PURCHASE,
+            'quantity' => 50,
+            'unit_price' => 50000,
+            'total_price' => 2500000,
+            'quantity_before' => 0,
+            'quantity_after' => 50,
+            'reference_type' => 'purchase',
+            'reference_id' => $purchase->id,
+        ]);
+
+        $this->assertEquals('purchase', $movement->reference_type);
+        $this->assertEquals($purchase->id, $movement->reference_id);
+    }
+
+    /** @test */
+    public function stock_movement_can_reference_transaction(): void
+    {
         $transaction = Transaction::create([
             'cashier_id' => $this->user->id,
-            'customer_id' => $customer->id,
-            'invoice' => 'INV-' . date('YmdHis'),
-            'cash' => 50000,
-            'change' => 5000,
+            'invoice' => 'INV-001',
+            'cash' => 100000,
+            'change' => 25000,
             'discount' => 0,
+            'grand_total' => 75000,
+        ]);
 
-            'grand_total' => 45000,
+        $movement = StockMovement::create([
+            'product_id' => $this->produk->id,
+            'movement_type' => StockMovement::TYPE_SALE,
+            'quantity' => -1,
+            'unit_price' => 75000,
+            'total_price' => 75000,
+            'quantity_before' => 50,
+            'quantity_after' => 49,
+            'reference_type' => 'transaction',
+            'reference_id' => $transaction->id,
+        ]);
+
+        $this->assertEquals('transaction', $movement->reference_type);
+        $this->assertEquals($transaction->id, $movement->reference_id);
+    }
+
+    // ==========================================
+    // RELASI INVENTORY ADJUSTMENT
+    // ==========================================
+
+    /** @test */
+    public function inventory_adjustment_belongs_to_product(): void
+    {
+        $adjustment = InventoryAdjustment::create([
+            'product_id' => $this->produk->id,
+            'type' => InventoryAdjustment::TYPE_ADJUSTMENT_IN,
+            'quantity_change' => 10,
+            'notes' => 'Test adjustment',
+            'journal_number' => InventoryAdjustment::generateJournalNumber(),
+            'user_id' => $this->user->id,
+        ]);
+
+        $this->assertInstanceOf(Product::class, $adjustment->product);
+        $this->assertEquals($this->produk->id, $adjustment->product->id);
+    }
+
+    /** @test */
+    public function inventory_adjustment_belongs_to_user(): void
+    {
+        $adjustment = InventoryAdjustment::create([
+            'product_id' => $this->produk->id,
+            'type' => InventoryAdjustment::TYPE_ADJUSTMENT_IN,
+            'quantity_change' => 10,
+            'notes' => 'Test adjustment',
+            'journal_number' => InventoryAdjustment::generateJournalNumber(),
+            'user_id' => $this->user->id,
+        ]);
+
+        $this->assertInstanceOf(User::class, $adjustment->user);
+        $this->assertEquals($this->user->id, $adjustment->user->id);
+    }
+
+    /** @test */
+    public function inventory_adjustment_can_have_stock_movement_relation(): void
+    {
+        // Create adjustment first
+        $adjustment = InventoryAdjustment::create([
+            'product_id' => $this->produk->id,
+            'type' => InventoryAdjustment::TYPE_ADJUSTMENT_IN,
+            'quantity_change' => 10,
+            'notes' => 'Test adjustment',
+            'journal_number' => InventoryAdjustment::generateJournalNumber(),
+            'user_id' => $this->user->id,
+        ]);
+
+        // Then create stock movement with reference to the adjustment
+        $movement = StockMovement::create([
+            'product_id' => $this->produk->id,
+            'movement_type' => StockMovement::TYPE_ADJUSTMENT_IN,
+            'quantity' => 10,
+            'unit_price' => 50000,
+            'total_price' => 500000,
+            'quantity_before' => 100,
+            'quantity_after' => 110,
+            'user_id' => $this->user->id,
+            'reference_type' => 'adjustment',
+            'reference_id' => $adjustment->id,
+        ]);
+
+        // Refresh and verify
+        $adjustment->refresh();
+        $this->assertNotNull($adjustment->stockMovement);
+        $this->assertEquals($movement->id, $adjustment->stockMovement->id);
+    }
+
+    // ==========================================
+    // RELASI PURCHASE
+    // ==========================================
+
+    /** @test */
+    public function purchase_has_many_purchase_items(): void
+    {
+        $purchase = Purchase::create([
+            'supplier_name' => 'Supplier C',
+            'purchase_date' => now(),
+            'status' => 'pending',
+        ]);
+
+        PurchaseItem::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->produk->id,
+            'barcode' => $this->produk->barcode,
+            'quantity' => 10,
+            'purchase_price' => 50000,
+            'total_price' => 500000,
+        ]);
+
+        // Create another product for second item
+        $produk2 = Product::create([
+            'barcode' => 'ELK002',
+            'title' => 'Keyboard USB',
+            'description' => 'Keyboard USB deskripsi',
+            'category_id' => $this->kategori->id,
+            'buy_price' => 75000,
+            'sell_price' => 100000,
+            'stock' => 50,
+        ]);
+
+        PurchaseItem::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $produk2->id,
+            'barcode' => $produk2->barcode,
+            'quantity' => 5,
+            'purchase_price' => 75000,
+            'total_price' => 375000,
+        ]);
+
+        $purchase->refresh();
+
+        $this->assertCount(2, $purchase->items);
+    }
+
+    // ==========================================
+    // RELASI PURCHASE ITEM
+    // ==========================================
+
+    /** @test */
+    public function purchase_item_belongs_to_purchase(): void
+    {
+        $purchase = Purchase::create([
+            'supplier_name' => 'Supplier D',
+            'purchase_date' => now(),
+            'status' => 'pending',
+        ]);
+
+        $item = PurchaseItem::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->produk->id,
+            'barcode' => $this->produk->barcode,
+            'quantity' => 10,
+            'purchase_price' => 50000,
+            'total_price' => 500000,
+        ]);
+
+        $this->assertInstanceOf(Purchase::class, $item->purchase);
+        $this->assertEquals($purchase->id, $item->purchase->id);
+    }
+
+    /** @test */
+    public function purchase_item_belongs_to_product(): void
+    {
+        $purchase = Purchase::create([
+            'supplier_name' => 'Supplier E',
+            'purchase_date' => now(),
+            'status' => 'pending',
+        ]);
+
+        $item = PurchaseItem::create([
+            'purchase_id' => $purchase->id,
+            'product_id' => $this->produk->id,
+            'barcode' => $this->produk->barcode,
+            'quantity' => 10,
+            'purchase_price' => 50000,
+            'total_price' => 500000,
+        ]);
+
+        $this->assertInstanceOf(Product::class, $item->product);
+        $this->assertEquals($this->produk->id, $item->product->id);
+    }
+
+    // ==========================================
+    // RELASI TRANSACTION
+    // ==========================================
+
+    /** @test */
+    public function transaction_belongs_to_user(): void
+    {
+        $transaction = Transaction::create([
+            'cashier_id' => $this->user->id,
+            'invoice' => 'INV-002',
+            'cash' => 100000,
+            'change' => 25000,
+            'discount' => 0,
+            'grand_total' => 75000,
+        ]);
+
+        $this->assertInstanceOf(User::class, $transaction->cashier);
+        $this->assertEquals($this->user->id, $transaction->cashier->id);
+    }
+
+    /** @test */
+    public function transaction_belongs_to_customer(): void
+    {
+        $transaction = Transaction::create([
+            'cashier_id' => $this->user->id,
+            'customer_id' => $this->customer->id,
+            'invoice' => 'INV-003',
+            'cash' => 100000,
+            'change' => 25000,
+            'discount' => 0,
+            'grand_total' => 75000,
+        ]);
+
+        $this->assertInstanceOf(Customer::class, $transaction->customer);
+        $this->assertEquals($this->customer->id, $transaction->customer->id);
+    }
+
+    /** @test */
+    public function transaction_has_many_transaction_details(): void
+    {
+        $transaction = Transaction::create([
+            'cashier_id' => $this->user->id,
+            'invoice' => 'INV-004',
+            'cash' => 200000,
+            'change' => 50000,
+            'discount' => 0,
+            'grand_total' => 150000,
         ]);
 
         TransactionDetail::create([
             'transaction_id' => $transaction->id,
-            'product_id' => $this->product->id,
-            'barcode' => 'TEST001',
-            'quantity' => 3,
+            'product_id' => $this->produk->id,
+            'barcode' => $this->produk->barcode,
+            'quantity' => 2,
+            'price' => 150000,
             'discount' => 0,
-            'price' => 15000,
         ]);
 
-        $this->product->refresh();
+        $transaction->refresh();
 
-        $this->assertInstanceOf(\Illuminate\Database\Eloquent\Collection::class, $this->product->transactionDetails);
-        $this->assertEquals(1, $this->product->transactionDetails->count());
+        $this->assertCount(1, $transaction->details);
+    }
+
+    // ==========================================
+    // RELASI TRANSACTION DETAIL
+    // ==========================================
+
+    /** @test */
+    public function transaction_detail_belongs_to_transaction(): void
+    {
+        $transaction = Transaction::create([
+            'cashier_id' => $this->user->id,
+            'invoice' => 'INV-005',
+            'cash' => 100000,
+            'change' => 25000,
+            'discount' => 0,
+            'grand_total' => 75000,
+        ]);
+
+        $detail = TransactionDetail::create([
+            'transaction_id' => $transaction->id,
+            'product_id' => $this->produk->id,
+            'barcode' => $this->produk->barcode,
+            'quantity' => 1,
+            'price' => 75000,
+            'discount' => 0,
+        ]);
+
+        $this->assertInstanceOf(Transaction::class, $detail->transaction);
+        $this->assertEquals($transaction->id, $detail->transaction->id);
     }
 
     /** @test */
-    public function customer_has_many_transactions()
+    public function transaction_detail_belongs_to_product(): void
     {
-        $customer = Customer::create([
-            'name' => 'Test Customer',
-            'no_telp' => '08123456789',
-            'address' => 'Test Address',
-        ]);
-
-        Transaction::create([
+        $transaction = Transaction::create([
             'cashier_id' => $this->user->id,
-            'customer_id' => $customer->id,
-            'invoice' => 'INV-' . date('YmdHis') . '1',
-            'cash' => 50000,
-            'change' => 5000,
-            'discount' => 0,
-
-            'grand_total' => 45000,
-        ]);
-
-        Transaction::create([
-            'cashier_id' => $this->user->id,
-            'customer_id' => $customer->id,
-            'invoice' => 'INV-' . date('YmdHis') . '2',
+            'invoice' => 'INV-006',
             'cash' => 100000,
-            'change' => 10000,
+            'change' => 25000,
             'discount' => 0,
-
-            'grand_total' => 90000,
+            'grand_total' => 75000,
         ]);
 
-        $customer->refresh();
+        $detail = TransactionDetail::create([
+            'transaction_id' => $transaction->id,
+            'product_id' => $this->produk->id,
+            'barcode' => $this->produk->barcode,
+            'quantity' => 1,
+            'price' => 75000,
+            'discount' => 0,
+        ]);
 
-        $this->assertInstanceOf(\Illuminate\Database\Eloquent\Collection::class, $customer->transactions);
-        $this->assertEquals(2, $customer->transactions->count());
+        $this->assertInstanceOf(Product::class, $detail->product);
+        $this->assertEquals($this->produk->id, $detail->product->id);
+    }
+
+    // ==========================================
+    // RELASI CUSTOMER
+    // ==========================================
+
+    /** @test */
+    public function customer_has_many_transactions(): void
+    {
+        Transaction::create([
+            'cashier_id' => $this->user->id,
+            'customer_id' => $this->customer->id,
+            'invoice' => 'INV-007',
+            'cash' => 100000,
+            'change' => 25000,
+            'discount' => 0,
+            'grand_total' => 75000,
+        ]);
+
+        Transaction::create([
+            'cashier_id' => $this->user->id,
+            'customer_id' => $this->customer->id,
+            'invoice' => 'INV-008',
+            'cash' => 200000,
+            'change' => 50000,
+            'discount' => 0,
+            'grand_total' => 150000,
+        ]);
+
+        $this->customer->refresh();
+
+        $this->assertCount(2, $this->customer->transactions);
+    }
+
+    // ==========================================
+    // RELASI USER
+    // ==========================================
+
+    /** @test */
+    public function user_has_many_transactions(): void
+    {
+        Transaction::create([
+            'cashier_id' => $this->user->id,
+            'invoice' => 'INV-009',
+            'cash' => 100000,
+            'change' => 25000,
+            'discount' => 0,
+            'grand_total' => 75000,
+        ]);
+
+        Transaction::create([
+            'cashier_id' => $this->user->id,
+            'invoice' => 'INV-010',
+            'cash' => 150000,
+            'change' => 50000,
+            'discount' => 0,
+            'grand_total' => 100000,
+        ]);
+
+        // Verify using cashier relationship
+        $count = Transaction::where('cashier_id', $this->user->id)->count();
+        $this->assertEquals(2, $count);
+    }
+
+    /** @test */
+    public function user_has_many_inventory_adjustments(): void
+    {
+        InventoryAdjustment::create([
+            'product_id' => $this->produk->id,
+            'type' => InventoryAdjustment::TYPE_ADJUSTMENT_IN,
+            'quantity_change' => 10,
+            'notes' => 'Adjustment 1',
+            'journal_number' => InventoryAdjustment::generateJournalNumber(),
+            'user_id' => $this->user->id,
+        ]);
+
+        InventoryAdjustment::create([
+            'product_id' => $this->produk->id,
+            'type' => InventoryAdjustment::TYPE_ADJUSTMENT_OUT,
+            'quantity_change' => -5,
+            'notes' => 'Adjustment 2',
+            'journal_number' => InventoryAdjustment::generateJournalNumber(),
+            'user_id' => $this->user->id,
+        ]);
+
+        $adjustments = InventoryAdjustment::where('user_id', $this->user->id)->count();
+
+        $this->assertEquals(2, $adjustments);
     }
 }

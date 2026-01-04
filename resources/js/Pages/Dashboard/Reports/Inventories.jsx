@@ -22,6 +22,7 @@ import Pagination from '@/Components/Dashboard/Pagination';
 import Button from '@/Components/Dashboard/Button';
 import { Dialog, Transition } from '@headlessui/react';
 import axios from 'axios';
+import { formatDateTime } from '@/Utils/DateHelper';
 
 export default function Inventories({ products, summary, filters, categories, recentAdjustments }) {
     const [filterData, setFilterData] = useState({
@@ -95,17 +96,6 @@ export default function Inventories({ products, summary, filters, categories, re
 
     const formatNumber = (num) => {
         return new Intl.NumberFormat('id-ID').format(num || 0);
-    };
-
-    const formatDateTime = (dateString) => {
-        if (!dateString) return '-';
-        return new Date(dateString).toLocaleString('id-ID', {
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-        });
     };
 
     const getStockBadge = (stock) => {

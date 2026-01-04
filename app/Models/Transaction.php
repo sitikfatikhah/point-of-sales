@@ -3,13 +3,14 @@
 namespace App\Models;
 
 use Carbon\Carbon;
+use App\Traits\HasFormattedTimestamps;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Transaction extends Model
 {
-    use HasFactory;
+    use HasFactory, HasFormattedTimestamps;
 
     /**
      * fillable
@@ -76,17 +77,5 @@ class Transaction extends Model
     public function product()
     {
         return $this->belongsTo(Product::class);
-    }
-
-    /**
-     * createdAt
-     *
-     * @return Attribute
-     */
-    protected function createdAt(): Attribute
-    {
-        return Attribute::make(
-            get: fn($value) => Carbon::parse($value)->format('d-M-Y H:i:s'),
-        );
     }
 }

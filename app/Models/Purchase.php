@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Traits\HasFormattedTimestamps;
 use Illuminate\Database\Eloquent\Model;
 
 class Purchase extends Model
 {
+    use HasFormattedTimestamps;
+
     protected $fillable = [
         'supplier_name',
         'purchase_date',
