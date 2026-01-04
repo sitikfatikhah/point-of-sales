@@ -449,6 +449,7 @@ class InventoryServiceTest extends TestCase
             'status' => 'received',
         ]);
 
+
         PurchaseItem::create([
             'purchase_id' => $purchase->id,
             'product_id' => $this->product->id,
