@@ -136,6 +136,9 @@ class InventoryController extends Controller
             'transactionDetails.transaction',
             'stockMovements' => function ($q) {
                 $q->with('user:id,name')->latest()->take(20);
+            },
+            'inventoryAdjustments' => function ($q) {
+                $q->with('user:id,name')->latest()->take(10);
             }
         ])
             ->withSum('purchaseItems as total_purchased', 'quantity')

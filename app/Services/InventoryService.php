@@ -26,76 +26,43 @@ class InventoryService
     // ==========================================
 
     /**
-     * Process inventory for a purchase (increase stock)
-     * Mencatat ke StockMovement ledger
-     */
-    public static function record(
-        int $productId,
-        string $type,
-        float $qty,
-        ?string $note = null,
-        ?string $referenceType = null,
-        ?int $referenceId = null,
-        ?int $userId = null
-    ): void {
-        DB::transaction(function () use (
-            $productId,
-            $type,
-            $qty,
-            $note,
-            $referenceType,
-            $referenceId,
-            $userId
-        ) {
-            // Lock and get the product
-            $product = Product::lockForUpdate()->findOrFail($productId);
-            $currentStock = StockMovement::getCurrentStock($productId);
-
-            // Create stock movement record for purchase
-            StockMovement::create([
-                'product_id' => $productId,
-                'user_id' => $userId ?? auth()->id(),
-                'movement_type' => StockMovement::TYPE_PURCHASE,
-                'reference_type' => $referenceType ?? 'purchase',
-                'reference_id' => $referenceId,
-                'quantity' => $qty,
-                'unit_price' => 0,  // Assuming no unit price is defined in the `record()` method, you can add a dynamic price if needed
-                'total_price' => 0,  // Same for total price
-                'quantity_before' => $currentStock,
-                'quantity_after' => $currentStock + $qty,
-                'notes' => $note,
-            ]);
-
-            // Update product stock
-            $product->increment('stock', $qty);
-
-            // Update inventory (adjusting stock after purchase)
-            $inventory = Inventory::getOrCreateForProduct($product);
-            $inventory->quantity = $currentStock + $qty;
-            $inventory->save();
-        });
-    }
-
-    /**
      * JURNAL PEMBELIAN (HIGH LEVEL)
      */
     public function processPurchase(Purchase $purchase): void
     {
-        foreach ($purchase->items as $item) {
-            if (!$item->product_id) {
-                continue;
-            }
+        DB::transaction(function () use ($purchase) {
+            foreach ($purchase->items as $item) {
+                if (!$item->product_id) {
+                    continue;
+                }
 
-            self::record(
-                productId: $item->product_id,
-                type: 'purchase',
-                qty: $item->quantity,
-                note: "Purchase from {$purchase->supplier_name}",
-                referenceType: 'purchase',
-                referenceId: $purchase->id,
-                userId: auth()->id()
-            );
-        }
+                $product = $item->product;
+                $currentStock = StockMovement::getCurrentStock($item->product_id);
+
+                // Create stock movement record
+                StockMovement::create([
+                    'product_id' => $item->product_id,
+                    'user_id' => auth()->id(),
+                    'movement_type' => StockMovement::TYPE_PURCHASE,
+                    'reference_type' => 'purchase',
+                    'reference_id' => $purchase->id,
+                    'quantity' => $item->quantity,
+                    'unit_price' => $item->purchase_price,
+                    'total_price' => $item->total_price,
+                    'quantity_before' => $currentStock,
+                    'quantity_after' => $currentStock + $item->quantity,
+                    'notes' => "Purchase from {$purchase->supplier_name}",
+                ]);
+
+                // Update product stock
+                $product->increment('stock', $item->quantity);
+
+                // Update inventory
+                $inventory = Inventory::getOrCreateForProduct($product);
+                $inventory->quantity = $currentStock + $item->quantity;
+                $inventory->save();
+            }
+        });
     }
 
     /**
@@ -213,26 +180,31 @@ class InventoryService
      */
     public function processTransaction($transaction): void
     {
-        $transaction->load('details.product');  // Load related products
+        $transaction->load('details.product');
 
-        foreach ($transaction->details as $detail) {
-            $product = $detail->product;
-            $currentStock = StockMovement::getCurrentStock($detail->product_id);
+        DB::transaction(function () use ($transaction) {
+            foreach ($transaction->details as $detail) {
+                if (!$detail->product_id) {
+                    continue;
+                }
 
-            // Create stock movement record for sale
-            StockMovement::create([
-                'product_id' => $detail->product_id,
-                'user_id' => auth()->id(),
-                'movement_type' => StockMovement::TYPE_SALE,
-                'reference_type' => 'transaction',
-                'reference_id' => $transaction->id,
-                'quantity' => -$detail->quantity, // Negative for outgoing
-                'unit_price' => $detail->price / $detail->quantity,
-                'total_price' => $detail->price,
-                'quantity_before' => $currentStock,
-                'quantity_after' => max(0, $currentStock - $detail->quantity),
-                'notes' => "Sale invoice: {$transaction->invoice}",
-            ]);
+                $product = $detail->product;
+                $currentStock = StockMovement::getCurrentStock($detail->product_id);
+
+                // Create stock movement record
+                StockMovement::create([
+                    'product_id' => $detail->product_id,
+                    'user_id' => auth()->id(),
+                    'movement_type' => StockMovement::TYPE_SALE,
+                    'reference_type' => 'transaction',
+                    'reference_id' => $transaction->id,
+                    'quantity' => -$detail->quantity, // Negative for outgoing
+                    'unit_price' => $detail->price / $detail->quantity, // Unit price from sale
+                    'total_price' => $detail->price,
+                    'quantity_before' => $currentStock,
+                    'quantity_after' => max(0, $currentStock - $detail->quantity),
+                    'notes' => "Sale invoice: {$transaction->invoice}",
+                ]);
 
             // Update product stock
             $newStock = max(0, $product->stock - $detail->quantity);
@@ -245,42 +217,39 @@ class InventoryService
                 $inventory->quantity = $newStock;
                 $inventory->save();
             }
-
-            // Record the transaction
-            self::record(
-                productId: $detail->product_id,
-                type: 'sale',
-                qty: $detail->quantity,
-                note: 'Sale #' . $transaction->invoice,
-                referenceType: 'transaction',
-                referenceId: $transaction->id,
-                userId: auth()->id()
-            );
-        }
+        });
     }
 
+    /**
+     * Reverse transaction (return stock)
+     */
     public function reverseTransaction($transaction): void
     {
         $transaction->load('details.product');
 
-        foreach ($transaction->details as $detail) {
-            $product = $detail->product;
-            $currentStock = StockMovement::getCurrentStock($detail->product_id);
+        DB::transaction(function () use ($transaction) {
+            foreach ($transaction->details as $detail) {
+                if (!$detail->product_id) {
+                    continue;
+                }
 
-            // Create return movement for transaction reversal
-            StockMovement::create([
-                'product_id' => $detail->product_id,
-                'user_id' => auth()->id(),
-                'movement_type' => StockMovement::TYPE_RETURN,
-                'reference_type' => 'transaction',
-                'reference_id' => $transaction->id,
-                'quantity' => $detail->quantity, // Positive for incoming
-                'unit_price' => $detail->price / $detail->quantity,
-                'total_price' => $detail->price,
-                'quantity_before' => $currentStock,
-                'quantity_after' => $currentStock + $detail->quantity,
-                'notes' => "Return for invoice: {$transaction->invoice}",
-            ]);
+                $product = $detail->product;
+                $currentStock = StockMovement::getCurrentStock($detail->product_id);
+
+                // Create return movement
+                StockMovement::create([
+                    'product_id' => $detail->product_id,
+                    'user_id' => auth()->id(),
+                    'movement_type' => StockMovement::TYPE_RETURN,
+                    'reference_type' => 'transaction',
+                    'reference_id' => $transaction->id,
+                    'quantity' => $detail->quantity, // Positive for incoming
+                    'unit_price' => $detail->price / $detail->quantity,
+                    'total_price' => $detail->price,
+                    'quantity_before' => $currentStock,
+                    'quantity_after' => $currentStock + $detail->quantity,
+                    'notes' => "Return for invoice: {$transaction->invoice}",
+                ]);
 
             // Update product stock
             $product->increment('stock', $detail->quantity);
@@ -291,7 +260,7 @@ class InventoryService
                 $inventory->quantity = $currentStock + $detail->quantity;
                 $inventory->save();
             }
-        }
+        });
     }
 
     // ==========================================
@@ -321,6 +290,8 @@ class InventoryService
             $newStock = $isIncoming ? $currentStock + abs($quantity) : max(0, $currentStock - abs($quantity));
 
             // Create inventory adjustment record (for journal)
+            // Note: quantity_before and quantity_after are NOT stored in inventory_adjustments table
+            // They are only stored in stock_movements table
             $adjustment = InventoryAdjustment::create([
                 'journal_number' => $journalNumber,
                 'product_id' => $product->id,
@@ -396,7 +367,6 @@ class InventoryService
 
     /**
      * Ringkasan inventory (DASHBOARD)
-     * ⚠️ Menggunakan saldo akhir produk, BUKAN jurnal
      */
     public function getStockHistory(Product $product, ?string $from = null, ?string $to = null)
     {

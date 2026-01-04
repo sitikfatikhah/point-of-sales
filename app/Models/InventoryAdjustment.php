@@ -197,4 +197,25 @@ class InventoryAdjustment extends Model
             default => $this->type,
         };
     }
+
+    /**
+     * Get quantity before adjustment from related stock movement
+     */
+    public function getQuantityBeforeAttribute(): float
+    {
+        return (float) ($this->stockMovement?->quantity_before ?? 0);
+    }
+
+    /**
+     * Get quantity after adjustment from related stock movement
+     */
+    public function getQuantityAfterAttribute(): float
+    {
+        return (float) ($this->stockMovement?->quantity_after ?? 0);
+    }
+
+    /**
+     * Append these attributes when serializing to array/json
+     */
+    protected $appends = ['quantity_before', 'quantity_after'];
 }

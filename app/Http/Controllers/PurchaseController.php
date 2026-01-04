@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\Purchase;
-use App\Models\InventoryAdjustment;
 use App\Services\InventoryService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -209,9 +208,10 @@ class PurchaseController extends Controller
 
     private function deleteInventoryJournal(Purchase $purchase): void
     {
-        InventoryAdjustment::where([
-            'reference_type' => 'purchase',
-            'reference_id' => $purchase->id,
-        ])->delete();
+        // Purchase menggunakan StockMovement, bukan InventoryAdjustment
+        // StockMovement sudah di-reverse oleh reversePurchase()
+        // Method ini tidak perlu melakukan apapun karena:
+        // 1. StockMovement tidak dihapus, tapi di-reverse dengan record baru
+        // 2. InventoryAdjustment hanya untuk adjustment manual (tidak terkait purchase)
     }
 }
