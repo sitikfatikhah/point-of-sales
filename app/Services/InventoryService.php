@@ -206,16 +206,17 @@ class InventoryService
                     'notes' => "Sale invoice: {$transaction->invoice}",
                 ]);
 
-            // Update product stock
-            $newStock = max(0, $product->stock - $detail->quantity);
-            $product->stock = $newStock;
-            $product->save();
+                // Update product stock
+                $newStock = max(0, $product->stock - $detail->quantity);
+                $product->stock = $newStock;
+                $product->save();
 
-            // Update inventory
-            $inventory = Inventory::where('product_id', $detail->product_id)->first();
-            if ($inventory) {
-                $inventory->quantity = $newStock;
-                $inventory->save();
+                // Update inventory
+                $inventory = Inventory::where('product_id', $detail->product_id)->first();
+                if ($inventory) {
+                    $inventory->quantity = $newStock;
+                    $inventory->save();
+                }
             }
         });
     }
@@ -251,14 +252,15 @@ class InventoryService
                     'notes' => "Return for invoice: {$transaction->invoice}",
                 ]);
 
-            // Update product stock
-            $product->increment('stock', $detail->quantity);
+                // Update product stock
+                $product->increment('stock', $detail->quantity);
 
-            // Update inventory
-            $inventory = Inventory::where('product_id', $detail->product_id)->first();
-            if ($inventory) {
-                $inventory->quantity = $currentStock + $detail->quantity;
-                $inventory->save();
+                // Update inventory
+                $inventory = Inventory::where('product_id', $detail->product_id)->first();
+                if ($inventory) {
+                    $inventory->quantity = $currentStock + $detail->quantity;
+                    $inventory->save();
+                }
             }
         });
     }
