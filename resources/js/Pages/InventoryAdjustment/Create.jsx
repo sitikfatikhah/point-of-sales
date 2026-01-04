@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import DashboardLayout from "@/Layouts/DashboardLayout";
 import { Head, Link, useForm } from "@inertiajs/react";
 import Button from "@/Components/Dashboard/Button";
@@ -14,10 +14,25 @@ export default function Create({ products, types }) {
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [searchQuery, setSearchQuery] = useState("");
     const [showProductList, setShowProductList] = useState(false);
+    const searchRef = useRef(null);
+
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (searchRef.current && !searchRef.current.contains(event.target)) {
+                setShowProductList(false);
+            }
+        };
+
+        document.addEventListener("mousedown", handleClickOutside);
+        return () => {
+            document.removeEventListener("mousedown", handleClickOutside);
+        };
+    }, []);
 
     const { data, setData, post, processing, errors, reset } = useForm({
         product_id: "",
-        type: "adjustment",
+        type: "adjustment_in",
         quantity: "",
         reason: "",
         notes: "",
@@ -98,11 +113,11 @@ export default function Create({ products, types }) {
                                     <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">
                                         Produk <span className="text-red-500">*</span>
                                     </label>
-                                    <div className="relative">
+                                    <div className="relative" ref={searchRef}>
                                         <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-400" />
                                         <input
                                             type="text"
-                                            placeholder="Cari produk..."
+                                            placeholder="Cari produk berdasarkan nama atau barcode..."
                                             value={searchQuery}
                                             onChange={(e) => {
                                                 setSearchQuery(e.target.value);
@@ -112,14 +127,14 @@ export default function Create({ products, types }) {
                                                     setData("product_id", "");
                                                 }
                                             }}
+                                            onKeyUp={() => setShowProductList(true)}
                                             onFocus={() => setShowProductList(true)}
                                             className="w-full pl-10 pr-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                                         />
-                                        {showProductList &&
-                                            searchQuery &&
-                                            filteredProducts?.length > 0 && (
-                                                <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-60 overflow-auto">
-                                                    {filteredProducts.map(
+                                        {showProductList && searchQuery && (
+                                            <div className="absolute z-10 w-full mt-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg max-h-60 overflow-auto">
+                                                {filteredProducts?.length > 0 ? (
+                                                    filteredProducts.map(
                                                         (product) => (
                                                             <button
                                                                 key={product.id}
@@ -147,9 +162,14 @@ export default function Create({ products, types }) {
                                                                 </span>
                                                             </button>
                                                         )
-                                                    )}
-                                                </div>
-                                            )}
+                                                    )
+                                                ) : (
+                                                    <div className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400 text-center">
+                                                        Produk tidak ditemukan
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
                                     </div>
                                     {errors.product_id && (
                                         <p className="mt-1 text-sm text-red-500">
@@ -212,9 +232,9 @@ export default function Create({ products, types }) {
                                     <p className="mt-1 text-xs text-slate-500">
                                         {data.type === "correction"
                                             ? "Stok akan diubah menjadi nilai ini"
-                                            : data.type === "in"
+                                            : data.type === "adjustment_in" || data.type === "return"
                                             ? "Stok akan ditambah sebanyak ini"
-                                            : data.type === "out" ||
+                                            : data.type === "adjustment_out" ||
                                               data.type === "damage"
                                             ? "Stok akan dikurangi sebanyak ini"
                                             : "Stok akan disesuaikan"}
@@ -360,7 +380,7 @@ export default function Create({ products, types }) {
                                                                 "correction"
                                                                 ? "text-blue-600 dark:text-blue-400"
                                                                 : data.type ===
-                                                                      "in"
+                                                                      "adjustment_in" || data.type === "return"
                                                                 ? "text-green-600 dark:text-green-400"
                                                                 : "text-red-600 dark:text-red-400"
                                                         }
@@ -371,7 +391,7 @@ export default function Create({ products, types }) {
                                                               ).toLocaleString(
                                                                   "id-ID"
                                                               )}`
-                                                            : data.type === "in"
+                                                            : data.type === "adjustment_in" || data.type === "return"
                                                             ? `+${parseFloat(
                                                                   data.quantity
                                                               ).toLocaleString(
@@ -396,7 +416,7 @@ export default function Create({ products, types }) {
                                                               ).toLocaleString(
                                                                   "id-ID"
                                                               )
-                                                            : data.type === "in"
+                                                            : data.type === "adjustment_in" || data.type === "return"
                                                             ? (
                                                                   (selectedProduct.stock ||
                                                                       0) +

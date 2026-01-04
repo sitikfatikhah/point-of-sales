@@ -125,22 +125,21 @@ export default function Index({
                     </div>
                     <div className="flex items-center gap-2">
                         <Button
-                            variant="light"
+                            type="button"
+                            variant="secondary"
                             onClick={handleSync}
                             className="flex items-center gap-2"
                         >
                             <IconRefresh className="w-4 h-4" />
                             <span className="hidden sm:inline">Sync</span>
                         </Button>
-                        <Link href={route("inventory-adjustments.create")}>
-                            <Button
-                                variant="primary"
-                                className="flex items-center gap-2"
-                            >
-                                <IconPlus className="w-4 h-4" />
-                                <span>Adjustment</span>
-                            </Button>
-                        </Link>
+                        <Button
+                            type="link"
+                            href={route("inventory-adjustments.create")}
+                            variant="primary"
+                            icon={<IconPlus className="w-4 h-4" />}
+                            label="Adjustment"
+                        />
                     </div>
                 </div>
 
@@ -151,7 +150,7 @@ export default function Index({
                             Total Produk
                         </p>
                         <p className="text-2xl font-bold text-slate-800 dark:text-white">
-                            {summary.total_products?.toLocaleString("id-ID")}
+                            {(summary.total_products ?? 0).toLocaleString("id-ID")}
                         </p>
                     </div>
                     <div className="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
@@ -164,7 +163,7 @@ export default function Index({
                                 currency: "IDR",
                                 minimumFractionDigits: 0,
                                 notation: "compact",
-                            }).format(summary.total_stock_value || 0)}
+                            }).format(summary.total_stock_value ?? 0)}
                         </p>
                     </div>
                     <div className="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
@@ -177,7 +176,7 @@ export default function Index({
                                 currency: "IDR",
                                 minimumFractionDigits: 0,
                                 notation: "compact",
-                            }).format(summary.total_sell_value || 0)}
+                            }).format(summary.total_sell_value ?? 0)}
                         </p>
                     </div>
                     <div className="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
@@ -185,7 +184,7 @@ export default function Index({
                             Stok Rendah
                         </p>
                         <p className="text-2xl font-bold text-yellow-600 dark:text-yellow-400">
-                            {summary.low_stock_count?.toLocaleString("id-ID")}
+                            {(summary.low_stock_count ?? 0).toLocaleString("id-ID")}
                         </p>
                     </div>
                     <div className="bg-white dark:bg-slate-800 rounded-xl p-4 border border-slate-200 dark:border-slate-700">
@@ -193,7 +192,7 @@ export default function Index({
                             Habis Stok
                         </p>
                         <p className="text-2xl font-bold text-red-600 dark:text-red-400">
-                            {summary.out_of_stock_count?.toLocaleString("id-ID")}
+                            {(summary.out_of_stock_count ?? 0).toLocaleString("id-ID")}
                         </p>
                     </div>
                 </div>
@@ -373,31 +372,24 @@ export default function Index({
                                                 {getTypeBadge(adjustment.type)}
                                             </Table.Td>
                                             <Table.Td className="text-right">
-                                                {Number(
-                                                    adjustment.quantity_before
-                                                ).toLocaleString("id-ID")}
+                                                {(adjustment.quantity_before ?? 0).toLocaleString("id-ID")}
                                             </Table.Td>
                                             <Table.Td className="text-right">
                                                 <span
                                                     className={
-                                                        adjustment.quantity_change >
-                                                        0
+                                                        (adjustment.quantity_change ?? 0) > 0
                                                             ? "text-green-600 dark:text-green-400"
                                                             : "text-red-600 dark:text-red-400"
                                                     }
                                                 >
-                                                    {adjustment.quantity_change > 0
+                                                    {(adjustment.quantity_change ?? 0) > 0
                                                         ? "+"
                                                         : ""}
-                                                    {Number(
-                                                        adjustment.quantity_change
-                                                    ).toLocaleString("id-ID")}
+                                                    {(adjustment.quantity_change ?? 0).toLocaleString("id-ID")}
                                                 </span>
                                             </Table.Td>
                                             <Table.Td className="text-right font-medium">
-                                                {Number(
-                                                    adjustment.quantity_after
-                                                ).toLocaleString("id-ID")}
+                                                {(adjustment.quantity_after ?? 0).toLocaleString("id-ID")}
                                             </Table.Td>
                                             <Table.Td>
                                                 <p className="text-sm text-slate-600 dark:text-slate-300 truncate max-w-[200px]">
