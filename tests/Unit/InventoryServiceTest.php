@@ -464,8 +464,7 @@ class InventoryServiceTest extends TestCase
         $this->inventoryService->processPurchase($purchase);
 
         // Verify inventory created
-        $inventory = Inventory::where('product_id', $this->product->id)->first();
-        $this->assertNotNull($inventory);
+        $inventory = Inventory::where('product_id', $this->product->id)->firstOrFail();
         // Stok berdasarkan StockMovement (0 + 50 = 50)
         $this->assertEquals(50, $inventory->quantity);
     }
