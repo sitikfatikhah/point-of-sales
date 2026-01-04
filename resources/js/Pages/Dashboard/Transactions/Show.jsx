@@ -1,6 +1,7 @@
 import { Head, Link } from '@inertiajs/react';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import { ArrowLeft, User, Calendar, Receipt, CreditCard, Package, TrendingDown, TrendingUp, Clock } from 'lucide-react';
+import { formatDateTime as formatDate } from '@/Utils/DateHelper';
 
 export default function Show({ auth, transaction, inventoryAdjustments }) {
     const formatCurrency = (amount) => {
@@ -9,16 +10,6 @@ export default function Show({ auth, transaction, inventoryAdjustments }) {
             currency: 'IDR',
             minimumFractionDigits: 0,
         }).format(amount);
-    };
-
-    const formatDate = (date) => {
-        return new Date(date).toLocaleDateString('id-ID', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-        });
     };
 
     const getPaymentStatusBadge = (status) => {

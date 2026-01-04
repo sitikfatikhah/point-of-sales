@@ -1,6 +1,7 @@
 import React from "react";
 import { Head, Link } from "@inertiajs/react";
 import { IconArrowLeft, IconPrinter, IconExternalLink } from "@tabler/icons-react";
+import { formatDateTime } from "@/Utils/DateHelper";
 
 export default function Print({ transaction }) {
     const formatPrice = (price = 0) =>
@@ -8,15 +9,6 @@ export default function Print({ transaction }) {
             style: "currency",
             currency: "IDR",
             minimumFractionDigits: 0,
-        });
-
-    const formatDateTime = (value) =>
-        new Date(value).toLocaleString("id-ID", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
         });
 
     const items = transaction?.details ?? [];

@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Traits\HasFormattedTimestamps;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\DB;
 
 class Inventory extends Model
 {
-    use HasFactory;
+    use HasFactory, HasFormattedTimestamps;
 
     protected $fillable = [
         'product_id',
